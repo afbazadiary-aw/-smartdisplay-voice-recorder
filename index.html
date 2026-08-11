@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Rekam Pesan Suara</title>
+<style>
+  :root{color-scheme:light dark}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+    background:#efeae2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    padding:20px}
+  .card{background:#fff;border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.15);
+    padding:28px 24px;width:100%;max-width:360px;text-align:center}
+  h1{font-size:16px;margin:0 0 6px;color:#111}
+  p.hint{font-size:12.5px;color:#667781;margin:0 0 22px}
+  .mic-circle{width:120px;height:120px;border-radius:50%;background:#f0f2f5;margin:0 auto 20px;
+    display:flex;align-items:center;justify-content:center;font-size:44px;transition:background .2s}
+  .mic-circle.recording{background:#fde2e1}
+  .timer{font-size:22px;font-weight:700;color:#111;font-variant-numeric:tabular-nums;
+    margin-bottom:18px;min-height:28px}
+  button{border:none;border-radius:24px;padding:12px 22px;font-size:14px;font-weight:600;
+    cursor:pointer;width:100%;margin-bottom:10px}
+  .btn-record{background:#25d366;color:#fff}
+  .btn-stop{background:#e53935;color:#fff}
+  .btn-cancel{background:#f0f2f5;color:#111}
+  button:disabled{opacity:.5;cursor:default}
+  .status{font-size:13px;margin-top:14px;min-height:18px}
+  .status.error{color:#e53935}
+  .status.success{color:#128C7E}
+  @media(prefers-color-scheme:dark){
+    body{background:#0b141a}
+    .card{background:#1f2c34}
+    h1{color:#e9edef}
+    p.hint{color:rgba(233,237,239,.55)}
+    .mic-circle{background:#2a3942}
+    .timer{color:#e9edef}
+    .btn-cancel{background:#2a3942;color:#e9edef}
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🎙️ Rekam Pesan Suara</h1>
+  <p class="hint" id="hint">Halaman ini berjalan di luar aplikasi supaya mikrofon bisa diakses langsung oleh browser. Setelah selesai, rekaman otomatis terkirim ke grup Chat.</p>
+  <div class="mic-circle" id="micCircle">🎤</div>
+  <div class="timer" id="timer"></div>
+  <div id="controls">
+    <button type="button" class="btn-record" id="recordBtn">⏺ Mulai Rekam</button>
+  </div>
+  <div class="status" id="status"></div>
+</div>
+<script>
+// PERMINTAAN ("mic voice note gagal di semua platform, batasan iframe Apps Script") - halaman
+// statis INI (di-host GitHub Pages, TERPISAH dari deployment Apps Script - lihat doPost() di
+// Kode.js untuk sisi penerimanya) berjalan sebagai tab browser TOP-LEVEL biasa, BUKAN di dalam
+// iframe sandbox Google, jadi getUserMedia() bekerja normal di sini. token/groupId/webapp
+// dibaca dari URL HASH (bukan query string) supaya TIDAK ikut terkirim ke server hosting/log
+// (fragment URL murni sisi-klien) - lihat startChatVoiceRecording() di chat_js.html untuk
+// bagaimana halaman ini dibuka (window.open dengan hash berisi parameter ini).
+function getHashParams() {
+  var hash = location.hash.replace(/^#/, '');
+  var params = {};
+  hash.split('&').forEach(function (pair) {
+    var idx = pair.indexOf('=');
+    if (idx === -1) return;
+    params[decodeURIComponent(pair.slice(0, idx))] = decodeURIComponent(pair.slice(idx + 1));
+  });
+  return params;
+}
+var PARAMS = getHashParams();
+var micCircle = document.getElementById('micCircle');
+var timerEl = document.getElementById('timer');
+var controlsEl = document.getElementById('controls');
+var statusEl = document.getElementById('status');
+var hintEl = document.getElementById('hint');
+
+if (!PARAMS.token || !PARAMS.groupId || !PARAMS.webapp) {
+  hintEl.textContent = 'Tautan tidak lengkap - buka halaman ini lewat tombol mic di aplikasi Chat, jangan diakses langsung.';
+  controlsEl.style.display = 'none';
+}
+
+var mediaRecorder = null, chunks = [], stream = null, startTime = 0, timerInterval = null;
+
+function formatTime(sec) {
+  var m = Math.floor(sec / 60), s = sec % 60;
+  return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+}
+function updateTimer() {
+  var sec = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
+  timerEl.textContent = formatTime(sec);
+}
+function setStatus(msg, kind) {
+  statusEl.textContent = msg || '';
+  statusEl.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+function startRecording() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+    setStatus('Perekaman suara tidak didukung di browser ini.', 'error');
+    return;
+  }
+  setStatus('');
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+    stream = s;
+    var preferred = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+      .find(function (t) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t); });
+    mediaRecorder = preferred ? new MediaRecorder(stream, { mimeType: preferred }) : new MediaRecorder(stream);
+    chunks = [];
+    mediaRecorder.ondataavailable = function (e) { if (e.data && e.data.size > 0) chunks.push(e.data); };
+    mediaRecorder.onstop = onRecordingStop;
+    mediaRecorder.start();
+    startTime = Date.now();
+    timerInterval = setInterval(updateTimer, 500);
+    updateTimer();
+    micCircle.classList.add('recording');
+    micCircle.textContent = '⏺';
+    controlsEl.innerHTML = '<button type="button" class="btn-stop" id="stopBtn">⏹ Berhenti & Kirim</button>' +
+      '<button type="button" class="btn-cancel" id="cancelBtn">Batal</button>';
+    document.getElementById('stopBtn').onclick = function () { stopRecording(false); };
+    document.getElementById('cancelBtn').onclick = function () { stopRecording(true); };
+  }).catch(function (e) {
+    var reason = (e && e.name) ? e.name : 'error';
+    setStatus('Tidak bisa mengakses mikrofon (' + reason + '). Pastikan izin mikrofon browser diizinkan untuk halaman ini.', 'error');
+  });
+}
+var cancelled = false;
+function stopRecording(isCancel) {
+  cancelled = isCancel;
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+  micCircle.classList.remove('recording');
+  micCircle.textContent = '🎤';
+}
+function onRecordingStop() {
+  if (cancelled || chunks.length === 0) { resetUi(); return; }
+  var mimeType = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
+  var blob = new Blob(chunks, { type: mimeType });
+  chunks = [];
+  if (blob.size < 400) { resetUi(); return; }
+  uploadRecording(blob, mimeType);
+}
+function uploadRecording(blob, mimeType) {
+  setStatus('Mengirim ke grup...', '');
+  controlsEl.innerHTML = '<button type="button" disabled>Mengirim...</button>';
+  var reader = new FileReader();
+  reader.onload = function (e) {
+    var base64 = String(e.target.result).split(',')[1] || '';
+    var form = new FormData();
+    form.append('action', 'uploadChatVoiceNote');
+    form.append('token', PARAMS.token);
+    form.append('groupId', PARAMS.groupId);
+    form.append('mimeType', mimeType);
+    form.append('audioBase64', base64);
+    fetch(PARAMS.webapp, { method: 'POST', body: form })
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (json && json.error) { setStatus('Gagal: ' + json.error, 'error'); resetUi(); return; }
+        setStatus('Terkirim! Anda bisa kembali ke aplikasi dan menutup tab ini.', 'success');
+        controlsEl.innerHTML = '<button type="button" class="btn-record" id="againBtn">⏺ Rekam Lagi</button>';
+        document.getElementById('againBtn').onclick = function () { setStatus(''); resetUi(); };
+      })
+      .catch(function () {
+        setStatus('Gagal mengirim - periksa koneksi internet, lalu coba lagi.', 'error');
+        resetUi();
+      });
+  };
+  reader.readAsDataURL(blob);
+}
+function resetUi() {
+  timerEl.textContent = '';
+  controlsEl.innerHTML = '<button type="button" class="btn-record" id="recordBtn">⏺ Mulai Rekam</button>';
+  document.getElementById('recordBtn').onclick = startRecording;
+}
+if (PARAMS.token && PARAMS.groupId && PARAMS.webapp) {
+  document.getElementById('recordBtn').onclick = startRecording;
+}
+</script>
+</body>
+</html>
