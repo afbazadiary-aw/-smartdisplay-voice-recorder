@@ -134,14 +134,29 @@ function stopRecording(isCancel) {
   micCircle.textContent = '🎤';
 }
 function onRecordingStop() {
+  // PERBAIKAN ("hasil 0 detik, padahal rekam 10 detik"): bug dikenal luas - WebM hasil
+  // MediaRecorder Chrome sering punya metadata Duration yang salah/kosong di headernya
+  // (Chrome tidak menulis ulang durasi yang benar untuk rekaman live-stream begitu berhenti),
+  // jadi player <audio> HTML5 menampilkan 0:00 meski audionya sendiri utuh & bisa diputar
+  // penuh. BUKAN data hilang - dibuktikan lewat pengecekan blob.size>400 di bawah yang tetap
+  // lolos untuk rekaman panjang. Solusi AMAN (tanpa membongkar/menambal byte biner EBML yang
+  // berisiko merusak file kalau salah implementasi): ukur durasi SENDIRI dari timestamp mulai
+  // (startTime, sudah akurat - dicatat saat MediaRecorder benar-benar mulai), kirim sebagai
+  // teks caption terpisah - chat bubble menampilkan durasi yang BENAR ini, bukan bergantung ke
+  // metadata WebM yang salah.
+  var durationSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
   if (cancelled || chunks.length === 0) { resetUi(); return; }
   var mimeType = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
   var blob = new Blob(chunks, { type: mimeType });
   chunks = [];
   if (blob.size < 400) { resetUi(); return; }
-  uploadRecording(blob, mimeType);
+  uploadRecording(blob, mimeType, durationSec);
 }
-function uploadRecording(blob, mimeType) {
+function formatDurationLabel(sec) {
+  var m = Math.floor(sec / 60), s = sec % 60;
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+function uploadRecording(blob, mimeType, durationSec) {
   setStatus('Mengirim ke grup...', '');
   controlsEl.innerHTML = '<button type="button" disabled>Mengirim...</button>';
   var reader = new FileReader();
@@ -153,13 +168,20 @@ function uploadRecording(blob, mimeType) {
     form.append('groupId', PARAMS.groupId);
     form.append('mimeType', mimeType);
     form.append('audioBase64', base64);
+    form.append('durationLabel', '🎤 ' + formatDurationLabel(durationSec));
     fetch(PARAMS.webapp, { method: 'POST', body: form })
       .then(function (res) { return res.json(); })
       .then(function (json) {
         if (json && json.error) { setStatus('Gagal: ' + json.error, 'error'); resetUi(); return; }
-        setStatus('Terkirim! Anda bisa kembali ke aplikasi dan menutup tab ini.', 'success');
+        // PERMINTAAN ("keluar ke tab baru tidak nyaman"): tutup jendela ini otomatis begitu
+        // terkirim, supaya user tidak perlu kembali manual - window.close() hanya diizinkan
+        // browser untuk jendela yang dibuka lewat script (window.open() dari chat_js.html),
+        // jadi ini seharusnya bekerja untuk alur normalnya; kalau browser MENOLAK menutupnya
+        // (kebijakan browser tertentu), tombol "Rekam Lagi" tetap tersedia sebagai fallback.
+        setStatus('Terkirim! Menutup jendela ini...', 'success');
         controlsEl.innerHTML = '<button type="button" class="btn-record" id="againBtn">⏺ Rekam Lagi</button>';
         document.getElementById('againBtn').onclick = function () { setStatus(''); resetUi(); };
+        setTimeout(function () { window.close(); }, 1200);
       })
       .catch(function () {
         setStatus('Gagal mengirim - periksa koneksi internet, lalu coba lagi.', 'error');
