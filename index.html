@@ -7,49 +7,50 @@
 <style>
   :root{color-scheme:light dark}
   *{box-sizing:border-box}
-  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-    background:#efeae2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-    padding:20px}
-  .card{background:#fff;border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.15);
-    padding:28px 24px;width:100%;max-width:360px;text-align:center}
-  h1{font-size:16px;margin:0 0 6px;color:#111}
-  p.hint{font-size:12.5px;color:#667781;margin:0 0 22px}
-  .mic-circle{width:120px;height:120px;border-radius:50%;background:#f0f2f5;margin:0 auto 20px;
-    display:flex;align-items:center;justify-content:center;font-size:44px;transition:background .2s}
-  .mic-circle.recording{background:#fde2e1}
-  .timer{font-size:22px;font-weight:700;color:#111;font-variant-numeric:tabular-nums;
-    margin-bottom:18px;min-height:28px}
-  button{border:none;border-radius:24px;padding:12px 22px;font-size:14px;font-weight:600;
-    cursor:pointer;width:100%;margin-bottom:10px}
-  .btn-record{background:#25d366;color:#fff}
-  .btn-stop{background:#e53935;color:#fff}
-  .btn-cancel{background:#f0f2f5;color:#111}
-  button:disabled{opacity:.5;cursor:default}
-  .status{font-size:13px;margin-top:14px;min-height:18px}
-  .status.error{color:#e53935}
+  html,body{margin:0;height:100%;background:#f0f0f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden}
+  /* PERMINTAAN ("buat persis seperti di whatsapp... tanpa tulisan apapun... user merasa itu
+     bagian dari aplikasi"): bar TIPIS horizontal gaya WhatsApp Desktop (lihat referensi
+     Image/buat tombol perekaman audio.png) - trash/batal, titik-timer berkedip, garis
+     titik-titik dekoratif, jeda, kirim. TIDAK ADA judul/hint text - hanya ikon+angka. */
+  .bar{display:none;align-items:center;gap:10px;height:100%;padding:0 14px;background:#fff}
+  .bar.show{display:flex}
+  .icon-btn{background:none;border:none;font-size:19px;cursor:pointer;padding:6px;
+    color:#54656f;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center}
+  .icon-btn:hover{background:rgba(0,0,0,.06)}
+  .dot{width:9px;height:9px;border-radius:50%;background:#e53935;flex-shrink:0;
+    animation:chatRecPulse 1.1s ease-in-out infinite}
+  .dot.paused{animation:none;opacity:.3}
+  @keyframes chatRecPulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .timer{font-size:13.5px;font-weight:600;color:#111;font-variant-numeric:tabular-nums;flex-shrink:0}
+  .waveform{flex:1;height:2px;min-width:40px;
+    background-image:linear-gradient(to right,#cfd4d8 55%,transparent 0%);
+    background-size:6px 2px;background-repeat:repeat-x}
+  .send-btn{width:36px;height:36px;border-radius:50%;background:#25d366;color:#fff;border:none;
+    font-size:15px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+  .send-btn:disabled{opacity:.5;cursor:default}
+  .status{position:fixed;left:0;right:0;bottom:2px;text-align:center;font-size:10.5px;
+    color:#e53935;padding:0 10px;line-height:1.3}
   .status.success{color:#128C7E}
   @media(prefers-color-scheme:dark){
-    body{background:#0b141a}
-    .card{background:#1f2c34}
-    h1{color:#e9edef}
-    p.hint{color:rgba(233,237,239,.55)}
-    .mic-circle{background:#2a3942}
+    html,body{background:#0b141a}
+    .bar{background:#1f2c34}
+    .icon-btn{color:rgba(233,237,239,.65)}
+    .icon-btn:hover{background:rgba(255,255,255,.08)}
     .timer{color:#e9edef}
-    .btn-cancel{background:#2a3942;color:#e9edef}
+    .waveform{background-image:linear-gradient(to right,#3b4a54 55%,transparent 0%)}
   }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>🎙️ Rekam Pesan Suara</h1>
-  <p class="hint" id="hint">Halaman ini berjalan di luar aplikasi supaya mikrofon bisa diakses langsung oleh browser. Setelah selesai, rekaman otomatis terkirim ke grup Chat.</p>
-  <div class="mic-circle" id="micCircle">🎤</div>
-  <div class="timer" id="timer"></div>
-  <div id="controls">
-    <button type="button" class="btn-record" id="recordBtn">⏺ Mulai Rekam</button>
-  </div>
-  <div class="status" id="status"></div>
+<div class="bar" id="bar">
+  <button type="button" class="icon-btn" id="trashBtn" title="Batal">🗑️</button>
+  <span class="dot" id="dot"></span>
+  <span class="timer" id="timer">0:00</span>
+  <span class="waveform"></span>
+  <button type="button" class="icon-btn" id="pauseBtn" title="Jeda">⏸️</button>
+  <button type="button" class="send-btn" id="sendBtn" title="Kirim">➤</button>
 </div>
+<div class="status" id="status"></div>
 <script>
 // PERMINTAAN ("mic voice note gagal di semua platform, batasan iframe Apps Script") - halaman
 // statis INI (di-host GitHub Pages, TERPISAH dari deployment Apps Script - lihat doPost() di
@@ -57,7 +58,7 @@
 // iframe sandbox Google, jadi getUserMedia() bekerja normal di sini. token/groupId/webapp
 // dibaca dari URL HASH (bukan query string) supaya TIDAK ikut terkirim ke server hosting/log
 // (fragment URL murni sisi-klien) - lihat startChatVoiceRecording() di chat_js.html untuk
-// bagaimana halaman ini dibuka (window.open dengan hash berisi parameter ini).
+// bagaimana halaman ini dibuka (window.open kecil, diposisikan tepat di atas tombol mic).
 function getHashParams() {
   var hash = location.hash.replace(/^#/, '');
   var params = {};
@@ -69,30 +70,30 @@ function getHashParams() {
   return params;
 }
 var PARAMS = getHashParams();
-var micCircle = document.getElementById('micCircle');
+var barEl = document.getElementById('bar');
 var timerEl = document.getElementById('timer');
-var controlsEl = document.getElementById('controls');
+var dotEl = document.getElementById('dot');
 var statusEl = document.getElementById('status');
-var hintEl = document.getElementById('hint');
+var trashBtn = document.getElementById('trashBtn');
+var pauseBtn = document.getElementById('pauseBtn');
+var sendBtn = document.getElementById('sendBtn');
 
-if (!PARAMS.token || !PARAMS.groupId || !PARAMS.webapp) {
-  hintEl.textContent = 'Tautan tidak lengkap - buka halaman ini lewat tombol mic di aplikasi Chat, jangan diakses langsung.';
-  controlsEl.style.display = 'none';
+function setStatus(msg, kind) {
+  statusEl.textContent = msg || '';
+  statusEl.className = 'status' + (kind ? ' ' + kind : '');
 }
 
 var mediaRecorder = null, chunks = [], stream = null, startTime = 0, timerInterval = null;
+var pausedTotal = 0, pauseStart = 0, isPaused = false, cancelled = false;
 
 function formatTime(sec) {
   var m = Math.floor(sec / 60), s = sec % 60;
   return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
 }
 function updateTimer() {
-  var sec = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
+  if (isPaused) return;
+  var sec = Math.max(0, Math.floor((Date.now() - startTime - pausedTotal) / 1000));
   timerEl.textContent = formatTime(sec);
-}
-function setStatus(msg, kind) {
-  statusEl.textContent = msg || '';
-  statusEl.className = 'status' + (kind ? ' ' + kind : '');
 }
 
 function startRecording() {
@@ -100,7 +101,6 @@ function startRecording() {
     setStatus('Perekaman suara tidak didukung di browser ini.', 'error');
     return;
   }
-  setStatus('');
   navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
     stream = s;
     var preferred = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
@@ -110,28 +110,36 @@ function startRecording() {
     mediaRecorder.ondataavailable = function (e) { if (e.data && e.data.size > 0) chunks.push(e.data); };
     mediaRecorder.onstop = onRecordingStop;
     mediaRecorder.start();
-    startTime = Date.now();
+    startTime = Date.now(); pausedTotal = 0; isPaused = false; cancelled = false;
     timerInterval = setInterval(updateTimer, 500);
     updateTimer();
-    micCircle.classList.add('recording');
-    micCircle.textContent = '⏺';
-    controlsEl.innerHTML = '<button type="button" class="btn-stop" id="stopBtn">⏹ Berhenti & Kirim</button>' +
-      '<button type="button" class="btn-cancel" id="cancelBtn">Batal</button>';
-    document.getElementById('stopBtn').onclick = function () { stopRecording(false); };
-    document.getElementById('cancelBtn').onclick = function () { stopRecording(true); };
+    barEl.classList.add('show');
   }).catch(function (e) {
     var reason = (e && e.name) ? e.name : 'error';
     setStatus('Tidak bisa mengakses mikrofon (' + reason + '). Pastikan izin mikrofon browser diizinkan untuk halaman ini.', 'error');
   });
 }
-var cancelled = false;
+function togglePause() {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+  if (isPaused) {
+    mediaRecorder.resume();
+    pausedTotal += Date.now() - pauseStart;
+    isPaused = false;
+    pauseBtn.textContent = '⏸️';
+    dotEl.classList.remove('paused');
+  } else {
+    mediaRecorder.pause();
+    pauseStart = Date.now();
+    isPaused = true;
+    pauseBtn.textContent = '▶️';
+    dotEl.classList.add('paused');
+  }
+}
 function stopRecording(isCancel) {
   cancelled = isCancel;
   if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
-  micCircle.classList.remove('recording');
-  micCircle.textContent = '🎤';
 }
 function onRecordingStop() {
   // PERBAIKAN ("hasil 0 detik, padahal rekam 10 detik"): bug dikenal luas - WebM hasil
@@ -141,15 +149,15 @@ function onRecordingStop() {
   // penuh. BUKAN data hilang - dibuktikan lewat pengecekan blob.size>400 di bawah yang tetap
   // lolos untuk rekaman panjang. Solusi AMAN (tanpa membongkar/menambal byte biner EBML yang
   // berisiko merusak file kalau salah implementasi): ukur durasi SENDIRI dari timestamp mulai
-  // (startTime, sudah akurat - dicatat saat MediaRecorder benar-benar mulai), kirim sebagai
-  // teks caption terpisah - chat bubble menampilkan durasi yang BENAR ini, bukan bergantung ke
-  // metadata WebM yang salah.
-  var durationSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
-  if (cancelled || chunks.length === 0) { resetUi(); return; }
+  // (startTime, dikurangi total waktu jeda) - chat bubble menampilkan durasi yang BENAR ini,
+  // bukan bergantung ke metadata WebM yang salah.
+  if (cancelled) { window.close(); return; }
+  var durationSec = Math.max(1, Math.round((Date.now() - startTime - pausedTotal) / 1000));
+  if (chunks.length === 0) { window.close(); return; }
   var mimeType = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
   var blob = new Blob(chunks, { type: mimeType });
   chunks = [];
-  if (blob.size < 400) { resetUi(); return; }
+  if (blob.size < 400) { window.close(); return; }
   uploadRecording(blob, mimeType, durationSec);
 }
 function formatDurationLabel(sec) {
@@ -157,8 +165,8 @@ function formatDurationLabel(sec) {
   return m + ':' + (s < 10 ? '0' : '') + s;
 }
 function uploadRecording(blob, mimeType, durationSec) {
-  setStatus('Mengirim ke grup...', '');
-  controlsEl.innerHTML = '<button type="button" disabled>Mengirim...</button>';
+  barEl.classList.remove('show');
+  setStatus('Mengirim...', '');
   var reader = new FileReader();
   reader.onload = function (e) {
     var base64 = String(e.target.result).split(',')[1] || '';
@@ -172,31 +180,30 @@ function uploadRecording(blob, mimeType, durationSec) {
     fetch(PARAMS.webapp, { method: 'POST', body: form })
       .then(function (res) { return res.json(); })
       .then(function (json) {
-        if (json && json.error) { setStatus('Gagal: ' + json.error, 'error'); resetUi(); return; }
+        if (json && json.error) { setStatus('Gagal: ' + json.error, 'error'); return; }
         // PERMINTAAN ("keluar ke tab baru tidak nyaman"): tutup jendela ini otomatis begitu
-        // terkirim, supaya user tidak perlu kembali manual - window.close() hanya diizinkan
-        // browser untuk jendela yang dibuka lewat script (window.open() dari chat_js.html),
-        // jadi ini seharusnya bekerja untuk alur normalnya; kalau browser MENOLAK menutupnya
-        // (kebijakan browser tertentu), tombol "Rekam Lagi" tetap tersedia sebagai fallback.
-        setStatus('Terkirim! Menutup jendela ini...', 'success');
-        controlsEl.innerHTML = '<button type="button" class="btn-record" id="againBtn">⏺ Rekam Lagi</button>';
-        document.getElementById('againBtn').onclick = function () { setStatus(''); resetUi(); };
-        setTimeout(function () { window.close(); }, 1200);
+        // terkirim - window.close() diizinkan browser untuk jendela yang dibuka lewat script
+        // (window.open() dari chat_js.html).
+        setStatus('Terkirim ✓', 'success');
+        setTimeout(function () { window.close(); }, 500);
       })
       .catch(function () {
-        setStatus('Gagal mengirim - periksa koneksi internet, lalu coba lagi.', 'error');
-        resetUi();
+        setStatus('Gagal mengirim - periksa koneksi internet.', 'error');
       });
   };
   reader.readAsDataURL(blob);
 }
-function resetUi() {
-  timerEl.textContent = '';
-  controlsEl.innerHTML = '<button type="button" class="btn-record" id="recordBtn">⏺ Mulai Rekam</button>';
-  document.getElementById('recordBtn').onclick = startRecording;
-}
+trashBtn.onclick = function () { stopRecording(true); };
+pauseBtn.onclick = togglePause;
+sendBtn.onclick = function () { stopRecording(false); };
+
 if (PARAMS.token && PARAMS.groupId && PARAMS.webapp) {
-  document.getElementById('recordBtn').onclick = startRecording;
+  // PERMINTAAN ("user merasa itu bagian dari aplikasi"): langsung mulai rekam begitu halaman
+  // terbuka - tidak ada langkah "tekan rekam" manual terpisah, persis seperti menekan mic di
+  // WhatsApp langsung mulai merekam.
+  startRecording();
+} else {
+  setStatus('Tautan tidak lengkap - buka halaman ini lewat tombol mic di aplikasi Chat.', 'error');
 }
 </script>
 </body>
