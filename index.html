@@ -66,6 +66,17 @@
   .waveform{flex:1;height:2px;min-width:40px;
     background-image:linear-gradient(to right,#cfd4d8 55%,transparent 0%);
     background-size:6px 2px;background-repeat:repeat-x}
+  /* PERMINTAAN ("tombol perekaman berupa BULAT MERAH, saat berjalan jadi tombol stop"): tombol
+     khusus rekam/stop - lingkaran merah polos saat siap, dan saat merekam muncul KOTAK PUTIH di
+     tengahnya (bahasa visual rec/stop yang lazim di perekam mana pun). Terpisah total dari tombol
+     play/pause yang tugasnya HANYA mendengarkan hasil rekaman. */
+  .rec-btn{width:34px;height:34px;border-radius:50%;background:#e53935;border:none;cursor:pointer;
+    flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;
+    box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .rec-btn:hover{background:#f04a44}
+  .rec-inner{width:0;height:0;background:#fff;border-radius:2px;display:block;
+    transition:width .15s ease,height .15s ease}
+  .rec-btn.recording .rec-inner{width:13px;height:13px}
   .send-btn{width:36px;height:36px;border-radius:50%;background:#25d366;color:#fff;border:none;
     font-size:15px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
   .send-btn:disabled{opacity:.5;cursor:default}
@@ -143,8 +154,11 @@
     <span class="dot" id="dot"></span>
     <span class="timer" id="timer">0:00</span>
     <span class="waveform"></span>
-    <button type="button" class="icon-btn" id="pauseBtn" title="Jeda">⏸️</button>
+    <!-- Play/pause HANYA untuk mendengarkan hasil rekaman - muncul setelah perekaman berhenti. -->
+    <button type="button" class="icon-btn" id="playBtn" title="Dengarkan" style="display:none">▶️</button>
+    <button type="button" class="rec-btn" id="recBtn" title="Mulai merekam"><span class="rec-inner"></span></button>
     <button type="button" class="send-btn" id="sendBtn" title="Kirim">➤</button>
+    <audio id="previewAudio" preload="auto" style="display:none"></audio>
   </div>
   <div class="status" id="status"></div>
   <div class="back-screen" id="backScreen">
@@ -176,7 +190,9 @@ var timerEl = document.getElementById('timer');
 var dotEl = document.getElementById('dot');
 var statusEl = document.getElementById('status');
 var trashBtn = document.getElementById('trashBtn');
-var pauseBtn = document.getElementById('pauseBtn');
+var recBtn = document.getElementById('recBtn');
+var playBtn = document.getElementById('playBtn');
+var previewAudioEl = document.getElementById('previewAudio');
 var sendBtn = document.getElementById('sendBtn');
 var micSelectEl = document.getElementById('micSelect');
 
@@ -220,8 +236,9 @@ function populateMicList() {
 // jendela (beda dari trashBtn/batal - micSwitching membedakan keduanya di onRecordingStop()).
 micSelectEl.onchange = function () {
   localStorage.setItem(MIC_DEVICE_KEY, micSelectEl.value);
+  // Mengganti mikrofon saat SEDANG merekam = ulang dari awal dengan device baru. Saat TIDAK
+  // merekam, dropdown hanya menyimpan pilihan - memulai perekaman kini tugas tombol rec khusus.
   if (mediaRecorder && mediaRecorder.state !== 'inactive') { micSwitching = true; stopRecording(false); }
-  else { startRecording(); }
 };
 if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
   navigator.mediaDevices.addEventListener('devicechange', populateMicList);
@@ -322,6 +339,7 @@ function startRecording(skipSavedDevice) {
     timerInterval = setInterval(updateTimer, 500);
     updateTimer();
     barEl.classList.add('show');
+    setRecordingUi();
   }).catch(function (e) {
     stopExtraStreams();
     // Sumber "suara aplikasi" gagal/ditolak/tidak didukung - JANGAN buntu: mundur otomatis ke
@@ -356,37 +374,79 @@ function renderSourceSeg() {
     try { localStorage.setItem(SRC_KEY, next); } catch (e) {}
     setStatus('', '');
     if (mediaRecorder && mediaRecorder.state !== 'inactive') { micSwitching = true; stopRecording(false); }
-    else { startRecording(); }
   };
   renderSourceSeg();
 })();
+// PERMINTAAN ("tombol rec/stap khusus, lalu play untuk mendengarkan dulu, baru kirim"): halaman
+// punya TIGA keadaan yang jelas dan tidak saling menumpang di satu tombol seperti sebelumnya:
+//   idle    - lingkaran merah polos (rekam), play tersembunyi, kirim mati
+//   recording - lingkaran merah berkotak putih (stop), play tersembunyi, kirim mati
+//   review  - lingkaran merah polos lagi (rekam ULANG), play muncul, kirim hidup
+// Hasil rekaman disimpan dulu di recordedBlob dan TIDAK langsung diunggah - pengiriman baru
+// terjadi saat user menekan ➤ sendiri, setelah sempat mendengarkannya.
+var recordedBlob = null, recordedMime = '', recordedSec = 0, previewUrl = '';
+function clearPreview() {
+  try { previewAudioEl.pause(); } catch (e) {}
+  previewAudioEl.removeAttribute('src');
+  if (previewUrl) { try { URL.revokeObjectURL(previewUrl); } catch (e) {} previewUrl = ''; }
+  recordedBlob = null; recordedMime = ''; recordedSec = 0;
+  playBtn.style.display = 'none';
+  playBtn.textContent = '▶️';
+}
 // Tampilan "siap merekam": bar terlihat (supaya pengaturan sumber/mikrofon bisa diatur dulu),
-// titik merah tidak berkedip, timer 0:00, tombol utama berbentuk ▶ (mulai).
+// titik merah tidak berkedip, timer 0:00, tombol rekam berupa lingkaran merah polos.
 function setIdleUi() {
   barEl.classList.add('show');
   dotEl.classList.add('paused');
   timerEl.textContent = '0:00';
-  pauseBtn.textContent = '▶️';
-  pauseBtn.title = 'Mulai merekam';
+  recBtn.classList.remove('recording');
+  recBtn.title = 'Mulai merekam';
   sendBtn.disabled = true;
+  clearPreview();
   populateMicList();
 }
-function togglePause() {
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
-  if (isPaused) {
-    mediaRecorder.resume();
-    pausedTotal += Date.now() - pauseStart;
-    isPaused = false;
-    pauseBtn.textContent = '⏸️';
-    dotEl.classList.remove('paused');
+function setRecordingUi() {
+  dotEl.classList.remove('paused');
+  recBtn.classList.add('recording');
+  recBtn.title = 'Berhenti merekam';
+  sendBtn.disabled = true;
+  playBtn.style.display = 'none';
+}
+// Rekaman selesai: hasilnya dipasang ke <audio> tersembunyi supaya bisa didengarkan di TEMPAT,
+// tombol rekam kembali jadi lingkaran merah (menekannya = rekam ulang, hasil lama dibuang).
+function setReviewUi(blob, mimeType, durationSec) {
+  recordedBlob = blob; recordedMime = mimeType; recordedSec = durationSec;
+  previewUrl = URL.createObjectURL(blob);
+  previewAudioEl.src = previewUrl;
+  dotEl.classList.add('paused');
+  recBtn.classList.remove('recording');
+  recBtn.title = 'Rekam ulang';
+  playBtn.style.display = '';
+  playBtn.textContent = '▶️';
+  playBtn.title = 'Dengarkan';
+  sendBtn.disabled = false;
+  timerEl.textContent = formatTime(durationSec);
+}
+function togglePreviewPlay() {
+  if (!recordedBlob) return;
+  if (previewAudioEl.paused) {
+    previewAudioEl.play().then(function () {
+      playBtn.textContent = '⏸️'; playBtn.title = 'Jeda';
+    }).catch(function () { setStatus('Tidak bisa memutar hasil rekaman.', 'error'); });
   } else {
-    mediaRecorder.pause();
-    pauseStart = Date.now();
-    isPaused = true;
-    pauseBtn.textContent = '▶️';
-    dotEl.classList.add('paused');
+    previewAudioEl.pause();
+    playBtn.textContent = '▶️'; playBtn.title = 'Dengarkan';
   }
 }
+// Timer ikut menunjukkan posisi pemutaran saat didengarkan, lalu kembali ke durasi total supaya
+// angka yang terlihat sebelum menekan kirim selalu durasi rekaman yang sebenarnya.
+previewAudioEl.addEventListener('timeupdate', function () {
+  if (!previewAudioEl.paused) timerEl.textContent = formatTime(Math.floor(previewAudioEl.currentTime));
+});
+previewAudioEl.addEventListener('ended', function () {
+  playBtn.textContent = '▶️'; playBtn.title = 'Dengarkan';
+  timerEl.textContent = formatTime(recordedSec);
+});
 function stopRecording(isCancel) {
   cancelled = isCancel;
   if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
@@ -497,8 +557,13 @@ function onRecordingStop() {
   var blob = new Blob(chunks, { type: mimeType });
   chunks = [];
   if (blob.size < 400) { window.close(); return; }
+  // PERMINTAAN ("setelah stop, user bisa play dulu mendengarkan hasilnya, BARU klik kirim"):
+  // dulu berhenti merekam = langsung unggah, jadi tidak pernah ada kesempatan memeriksa hasil.
+  // Sekarang berhenti hanya masuk keadaan review - unggah dipicu tombol kirim (lihat sendBtn).
+  // Tambalan Duration WebM tetap dikerjakan di sini supaya blob yang DIDENGARKAN sama persis
+  // dengan yang nanti dikirim (kalau ditambal belakangan, pratinjaunya bisa terpotong sendiri).
   var fixPromise = (mimeType.indexOf('webm') !== -1) ? chatFixWebmDuration(blob, durationMs) : Promise.resolve(blob);
-  fixPromise.then(function (finalBlob) { uploadRecording(finalBlob, mimeType, durationSec); });
+  fixPromise.then(function (finalBlob) { setReviewUi(finalBlob, mimeType, durationSec); });
 }
 function formatDurationLabel(sec) {
   var m = Math.floor(sec / 60), s = sec % 60;
@@ -540,12 +605,22 @@ function uploadRecording(blob, mimeType, durationSec) {
   reader.readAsDataURL(blob);
 }
 trashBtn.onclick = function () { stopRecording(true); };
-// PERMINTAAN: tombol ini MEMULAI perekaman saat masih siap, lalu jadi jeda/lanjut setelah jalan.
-pauseBtn.onclick = function () {
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') { startRecording(); return; }
-  togglePause();
+// Satu tombol KHUSUS rekam/stop: siap -> mulai, sedang merekam -> berhenti, sudah ada hasil ->
+// rekam ulang (hasil lama dibuang lebih dulu supaya tidak ada blob nyasar ikut terkirim).
+recBtn.onclick = function () {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') { stopRecording(false); return; }
+  clearPreview();
+  setStatus('', '');
+  startRecording();
 };
-sendBtn.onclick = function () { stopRecording(false); };
+playBtn.onclick = togglePreviewPlay;
+// Kirim HANYA memakai rekaman yang sudah selesai & sempat didengarkan - kalau tombol ini ditekan
+// saat masih merekam (seharusnya tidak bisa, sendBtn dimatikan), perekaman dihentikan dulu.
+sendBtn.onclick = function () {
+  if (!recordedBlob) { if (mediaRecorder && mediaRecorder.state !== 'inactive') stopRecording(false); return; }
+  try { previewAudioEl.pause(); } catch (e) {}
+  uploadRecording(recordedBlob, recordedMime, recordedSec);
+};
 
 if (PARAMS.token && PARAMS.groupId && PARAMS.webapp) {
   // PERMINTAAN (revisi - "jangan otomatis langsung merekam, karena di halaman perekaman ada
