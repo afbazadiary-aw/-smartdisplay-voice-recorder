@@ -42,6 +42,18 @@
   .btn-send{width:52px;height:52px;background:#25d366;font-size:18px}
   .btn-retake{width:44px;height:44px;background:#54656f;font-size:16px}
   .btn-back{width:44px;height:44px;background:#008069;font-size:18px}
+  /* PERBAIKAN AKAR MASALAH ("video dikirim, lalu kembali, ditunggu di chat tidak muncul"):
+     pengiriman berjalan di LATAR BELAKANG dan tombol kembali langsung menutup jendela - kalau
+     ditekan sebelum unggahan selesai, window.close() MEMBUNUH permintaan yang sedang berjalan
+     dan videonya tidak pernah sampai ke server. Audio tidak kena karena berkasnya kecil dan
+     selesai dalam sekejap; video butuh beberapa detik, jadi hampir selalu keburu ditutup.
+     Sekarang tombol kembali DIKUNCI selama pengiriman berlangsung, ditandai cincin berputar
+     (isyarat visual, TANPA tulisan "Mengirim..."), dan jendela menutup SENDIRI begitu benar-
+     benar terkirim. */
+  .btn-back.uploading{opacity:1;cursor:default;position:relative}
+  .btn-back.uploading::after{content:'';position:absolute;inset:-5px;border-radius:50%;
+    border:2px solid rgba(255,255,255,.22);border-top-color:#25d366;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
   .btn:disabled{opacity:.45;cursor:default}
   .status{font-size:11px;color:#ff8a80;text-align:center;padding:0 10px;line-height:1.35;min-height:14px}
   .status.ok{color:#7ce0a3}
@@ -184,8 +196,14 @@ function sendVideo() {
   var durationSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
   var mimeType = blob.type || 'video/webm';
   headEl.textContent = 'Chat Video';
-  controlsEl.innerHTML = '<button type="button" class="btn btn-back" id="backBtn" title="Kembali ke Chat">&#8592;</button>';
-  document.getElementById('backBtn').onclick = function () { window.close(); };
+  controlsEl.innerHTML = '<button type="button" class="btn btn-back uploading" id="backBtn" title="Sedang dikirim" disabled>&#8592;</button>';
+  var backBtn = document.getElementById('backBtn');
+  var unlockBack = function () {
+    backBtn.classList.remove('uploading');
+    backBtn.disabled = false;
+    backBtn.title = 'Kembali ke Chat';
+    backBtn.onclick = function () { window.close(); };
+  };
   previewEl.pause();
   var reader = new FileReader();
   reader.onload = function (e) {
@@ -207,13 +225,14 @@ function sendVideo() {
       .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, status: r.status, text: t }; }); })
       .then(function (res) {
         var j = null; try { j = JSON.parse(res.text); } catch (e) {}
-        if (j && j.error) { setStatus('Gagal: ' + j.error + ' (' + sizeMb + ' MB)'); return; }
+        if (j && j.error) { unlockBack(); setStatus('Gagal: ' + j.error + ' (' + sizeMb + ' MB)'); return; }
         if (j && (j.success || j.id || j.message)) { window.close(); return; }
+        unlockBack();
         setStatus('Gagal kirim - server menjawab ' + res.status + ' (' + sizeMb + ' MB). ' + String(res.text).replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
       })
-      .catch(function (err) { setStatus('Gagal mengirim (' + sizeMb + ' MB): ' + ((err && err.message) || 'koneksi terputus')); });
+      .catch(function (err) { unlockBack(); setStatus('Gagal mengirim (' + sizeMb + ' MB): ' + ((err && err.message) || 'koneksi terputus')); });
   };
-  reader.onerror = function () { setStatus('Gagal membaca hasil rekaman di perangkat ini.'); };
+  reader.onerror = function () { unlockBack(); setStatus('Gagal membaca hasil rekaman di perangkat ini.'); };
   reader.readAsDataURL(blob);
 }
 mainBtn.onclick = onMainClick;

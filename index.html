@@ -133,6 +133,14 @@
     width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;
     box-shadow:0 2px 6px rgba(0,0,0,.25);line-height:1}
   .back-btn:hover{background:#00a884}
+  /* Perlindungan yang SAMA seperti di video.html: menutup jendela selagi unggahan berjalan
+     membunuh permintaannya. Audio memang biasanya kecil & selesai seketika, tapi rekaman panjang
+     atau jaringan lambat bisa kena masalah yang persis sama - jadi dikunci juga di sini.
+     Isyaratnya cincin berputar, tanpa tulisan "Mengirim...". */
+  .back-btn.uploading{cursor:default;position:relative}
+  .back-btn.uploading::after{content:'';position:absolute;inset:-6px;border-radius:50%;
+    border:2px solid rgba(255,255,255,.22);border-top-color:#25d366;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
   .back-err{font-size:9.5px;color:#e53935;text-align:center;padding:0 12px;line-height:1.3}
   @media(prefers-color-scheme:dark){ .back-btn{color:rgba(233,237,239,.75)} .back-btn:hover{background:rgba(255,255,255,.08)} }
   @media(prefers-color-scheme:dark){
@@ -622,6 +630,15 @@ function formatDurationLabel(sec) {
 function uploadRecording(blob, mimeType, durationSec) {
   barEl.classList.remove('show');
   showBackScreen();
+  var backBtnEl = document.getElementById('backBtn');
+  backBtnEl.classList.add('uploading');
+  backBtnEl.disabled = true;
+  backBtnEl.title = 'Sedang dikirim';
+  var unlockBack = function () {
+    backBtnEl.classList.remove('uploading');
+    backBtnEl.disabled = false;
+    backBtnEl.title = 'Kembali ke Chat';
+  };
   var reader = new FileReader();
   reader.onload = function (e) {
     var base64 = String(e.target.result).split(',')[1] || '';
@@ -642,11 +659,13 @@ function uploadRecording(blob, mimeType, durationSec) {
       .then(function (r) { return r.text().then(function (t) { return { status: r.status, text: t }; }); })
       .then(function (res) {
         var json = null; try { json = JSON.parse(res.text); } catch (e) {}
-        if (json && json.error) { showBackError(json.error + ' (' + sizeMb + ' MB)'); return; }
+        if (json && json.error) { unlockBack(); showBackError(json.error + ' (' + sizeMb + ' MB)'); return; }
         if (json && json.success) { window.close(); return; }
+        unlockBack();
         showBackError('Server menjawab ' + res.status + ' (' + sizeMb + ' MB). ' + String(res.text).replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
       })
       .catch(function (err) {
+        unlockBack();
         showBackError('Gagal mengirim (' + sizeMb + ' MB): ' + ((err && err.message) || 'koneksi terputus'));
       });
   };
