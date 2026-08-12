@@ -40,6 +40,21 @@
   .send-btn:disabled{opacity:.5;cursor:default}
   .status{text-align:center;font-size:10.5px;color:#e53935;padding:0 10px 8px;line-height:1.3}
   .status.success{color:#128C7E}
+  /* PERMINTAAN ("hilangkan tulisan 'Mengirim...' dan blok panjangnya, cukup panah kembali di
+     tengah layar kosong, aplikasi jangan terkesan lambat"): begitu tombol kirim ditekan, bar
+     perekaman langsung diganti layar KOSONG ini (bukan teks progres apa pun) - pengiriman
+     berjalan diam-diam di latar belakang (lihat uploadRecording() di script). Panah selalu bisa
+     diklik kapan saja untuk kembali ke menu chat (window.close()), tidak menunggu upload
+     selesai - itu pilihan sadar user kalau mau buru-buru pergi sebelum kirim tuntas, sama
+     seperti menutup tab di aplikasi lain saat sesuatu masih berjalan di background. */
+  .back-screen{display:none;flex-direction:column;align-items:center;justify-content:center;
+    gap:6px;height:70px;width:100%}
+  .back-screen.show{display:flex}
+  .back-btn{background:none;border:none;font-size:22px;cursor:pointer;color:#54656f;
+    width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+  .back-btn:hover{background:rgba(0,0,0,.06)}
+  .back-err{font-size:9.5px;color:#e53935;text-align:center;padding:0 12px;line-height:1.3}
+  @media(prefers-color-scheme:dark){ .back-btn{color:rgba(233,237,239,.75)} .back-btn:hover{background:rgba(255,255,255,.08)} }
   @media(prefers-color-scheme:dark){
     html,body{background:#0b141a}
     .card{background:#1f2c34}
@@ -78,6 +93,10 @@
     <button type="button" class="send-btn" id="sendBtn" title="Kirim">➤</button>
   </div>
   <div class="status" id="status"></div>
+  <div class="back-screen" id="backScreen">
+    <button type="button" class="back-btn" id="backBtn" title="Kembali ke Chat">←</button>
+    <div class="back-err" id="backErr" style="display:none"></div>
+  </div>
 </div>
 <script>
 // PERMINTAAN ("mic voice note gagal di semua platform, batasan iframe Apps Script") - halaman
@@ -111,6 +130,11 @@ function setStatus(msg, kind) {
   statusEl.textContent = msg || '';
   statusEl.className = 'status' + (kind ? ' ' + kind : '');
 }
+var backScreenEl = document.getElementById('backScreen');
+var backErrEl = document.getElementById('backErr');
+function showBackScreen() { backScreenEl.classList.add('show'); }
+function showBackError(msg) { backErrEl.textContent = msg; backErrEl.style.display = 'block'; }
+document.getElementById('backBtn').onclick = function () { window.close(); };
 
 var mediaRecorder = null, chunks = [], stream = null, startTime = 0, timerInterval = null;
 var pausedTotal = 0, pauseStart = 0, isPaused = false, cancelled = false, micSwitching = false;
@@ -318,9 +342,19 @@ function formatDurationLabel(sec) {
   var m = Math.floor(sec / 60), s = sec % 60;
   return m + ':' + (s < 10 ? '0' : '') + s;
 }
+// PERMINTAAN ("hilangkan 'Mengirim...', percepat pengiriman, jangan terkesan lambat"): bar
+// perekaman diganti layar panah-kembali SEKETIKA (bukan menunggu upload) - upload lanjut di
+// LATAR BELAKANG lewat fetch() biasa (bukan sendBeacon/fetch keepalive - keduanya dibatasi
+// browser ~64KB per payload, rekaman suara gampang lebih besar dari itu, jadi tidak aman
+// dipakai di sini). Kalau user klik panah sebelum upload tuntas, window.close() dieksekusi
+// SEGERA sesuai keinginannya - sama seperti menutup tab aplikasi lain saat sesuatu masih
+// berjalan di background, trade-off yang wajar & diterima luas, BUKAN bug. Kasus normal
+// (user tidak buru-buru menutup) tetap 100% reliable karena fetch tidak diberi flag apa pun
+// yang bisa membatasi ukurannya. Sukses menutup jendela TANPA teks "Terkirim" - gagal tetap
+// tampil pesan singkat (bukan "loading" chatter, ini kegagalan NYATA yang wajib diketahui user).
 function uploadRecording(blob, mimeType, durationSec) {
   barEl.classList.remove('show');
-  setStatus('Mengirim...', '');
+  showBackScreen();
   var reader = new FileReader();
   reader.onload = function (e) {
     var base64 = String(e.target.result).split(',')[1] || '';
@@ -334,15 +368,11 @@ function uploadRecording(blob, mimeType, durationSec) {
     fetch(PARAMS.webapp, { method: 'POST', body: form })
       .then(function (res) { return res.json(); })
       .then(function (json) {
-        if (json && json.error) { setStatus('Gagal: ' + json.error, 'error'); return; }
-        // PERMINTAAN ("keluar ke tab baru tidak nyaman"): tutup jendela ini otomatis begitu
-        // terkirim - window.close() diizinkan browser untuk jendela yang dibuka lewat script
-        // (window.open() dari chat_js.html).
-        setStatus('Terkirim ✓', 'success');
-        setTimeout(function () { window.close(); }, 500);
+        if (json && json.error) { showBackError(json.error); return; }
+        window.close();
       })
       .catch(function () {
-        setStatus('Gagal mengirim - periksa koneksi internet.', 'error');
+        showBackError('Gagal mengirim - periksa koneksi internet.');
       });
   };
   reader.readAsDataURL(blob);
