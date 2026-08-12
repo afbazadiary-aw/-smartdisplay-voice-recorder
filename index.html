@@ -8,11 +8,15 @@
   :root{color-scheme:light dark}
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:#f0f0f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden}
+  body{display:flex;align-items:center;justify-content:center}
   /* PERMINTAAN ("buat persis seperti di whatsapp... tanpa tulisan apapun... user merasa itu
      bagian dari aplikasi"): bar TIPIS horizontal gaya WhatsApp Desktop (lihat referensi
      Image/buat tombol perekaman audio.png) - trash/batal, titik-timer berkedip, garis
-     titik-titik dekoratif, jeda, kirim. TIDAK ADA judul/hint text - hanya ikon+angka. */
-  .bar{display:none;align-items:center;gap:10px;height:100%;padding:0 14px;background:#fff}
+     titik-titik dekoratif, jeda, kirim. TIDAK ADA judul/hint text - hanya ikon+angka. Ini
+     tampilan DEFAULT, dipakai apa adanya saat jendela ini benar-benar popup kecil 360x70
+     (desktop, lihat startChatVoiceRecording() di chat_js.html - window.open dgn ukuran itu). */
+  .card{width:100%;background:#fff}
+  .bar{display:none;align-items:center;gap:10px;height:70px;padding:0 14px}
   .bar.show{display:flex}
   .icon-btn{background:none;border:none;font-size:19px;cursor:pointer;padding:6px;
     color:#54656f;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center}
@@ -22,35 +26,59 @@
   .dot.paused{animation:none;opacity:.3}
   @keyframes chatRecPulse{0%,100%{opacity:1}50%{opacity:.25}}
   .timer{font-size:13.5px;font-weight:600;color:#111;font-variant-numeric:tabular-nums;flex-shrink:0}
+  /* PERMINTAAN ("dropdown pilih mikrofon, tetap sesuai pilihan terakhir sampai diganti"):
+     select NATIVE (bukan dropdown custom) - browser yang urus popup daftar device, kita hanya
+     styling supaya blend jadi kontrol kecil ikon-ish, konsisten dengan bar minim-teks ini. */
+  .mic-select{flex-shrink:0;max-width:64px;font-size:9.5px;color:#54656f;background:none;
+    border:none;cursor:pointer;padding:2px 0}
+  @media(prefers-color-scheme:dark){ .mic-select{color:rgba(233,237,239,.65)} }
   .waveform{flex:1;height:2px;min-width:40px;
     background-image:linear-gradient(to right,#cfd4d8 55%,transparent 0%);
     background-size:6px 2px;background-repeat:repeat-x}
   .send-btn{width:36px;height:36px;border-radius:50%;background:#25d366;color:#fff;border:none;
     font-size:15px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
   .send-btn:disabled{opacity:.5;cursor:default}
-  .status{position:fixed;left:0;right:0;bottom:2px;text-align:center;font-size:10.5px;
-    color:#e53935;padding:0 10px;line-height:1.3}
+  .status{text-align:center;font-size:10.5px;color:#e53935;padding:0 10px 8px;line-height:1.3}
   .status.success{color:#128C7E}
   @media(prefers-color-scheme:dark){
     html,body{background:#0b141a}
-    .bar{background:#1f2c34}
+    .card{background:#1f2c34}
     .icon-btn{color:rgba(233,237,239,.65)}
     .icon-btn:hover{background:rgba(255,255,255,.08)}
     .timer{color:#e9edef}
     .waveform{background-image:linear-gradient(to right,#3b4a54 55%,transparent 0%)}
   }
+  /* PERMINTAAN ("dibuat kartu di HP agar tidak berpindah ke tab baru"): mikrofon TIDAK BISA
+     diakses dari dalam iframe sandbox Apps Script (batasan Permissions-Policy platform,
+     dikonfirmasi gagal di semua device - lihat [[project_chat_feature]]) - halaman ini WAJIB
+     tetap jadi browsing context top-level terpisah, itu tidak berubah. Yang BISA diperbaiki:
+     di HP, window.open() mengabaikan ukuran 360x70 (fitur popup kecil cuma ditaati desktop) dan
+     membuka TAB PENUH LAYAR - bar tipis di atas jadi terasa "pindah ke situs asing" karena
+     mengambang sendirian di layar kosong. Deteksi kasus itu lewat tinggi viewport (jendela
+     popup asli SELALU pas 70px, tab HP penuh SELALU jauh lebih tinggi) - saat itu terjadi,
+     bungkus bar jadi KARTU mengambang di tengah layar dengan latar redup di belakangnya, gaya
+     dialog/bottom-sheet yang lazim di app ini, supaya terasa seperti bagian dari aplikasi
+     walau teknisnya tetap tab terpisah. */
+  @media(min-height:200px){
+    body{background:rgba(0,0,0,.55)}
+    .card{width:min(360px,92vw);border-radius:16px;box-shadow:0 12px 34px rgba(0,0,0,.35);overflow:hidden}
+    @media(prefers-color-scheme:dark){ body{background:rgba(0,0,0,.72)} }
+  }
 </style>
 </head>
 <body>
-<div class="bar" id="bar">
-  <button type="button" class="icon-btn" id="trashBtn" title="Batal">🗑️</button>
-  <span class="dot" id="dot"></span>
-  <span class="timer" id="timer">0:00</span>
-  <span class="waveform"></span>
-  <button type="button" class="icon-btn" id="pauseBtn" title="Jeda">⏸️</button>
-  <button type="button" class="send-btn" id="sendBtn" title="Kirim">➤</button>
+<div class="card" id="card">
+  <div class="bar" id="bar">
+    <button type="button" class="icon-btn" id="trashBtn" title="Batal">🗑️</button>
+    <select id="micSelect" class="mic-select" title="Pilih mikrofon" style="display:none"></select>
+    <span class="dot" id="dot"></span>
+    <span class="timer" id="timer">0:00</span>
+    <span class="waveform"></span>
+    <button type="button" class="icon-btn" id="pauseBtn" title="Jeda">⏸️</button>
+    <button type="button" class="send-btn" id="sendBtn" title="Kirim">➤</button>
+  </div>
+  <div class="status" id="status"></div>
 </div>
-<div class="status" id="status"></div>
 <script>
 // PERMINTAAN ("mic voice note gagal di semua platform, batasan iframe Apps Script") - halaman
 // statis INI (di-host GitHub Pages, TERPISAH dari deployment Apps Script - lihat doPost() di
@@ -77,6 +105,7 @@ var statusEl = document.getElementById('status');
 var trashBtn = document.getElementById('trashBtn');
 var pauseBtn = document.getElementById('pauseBtn');
 var sendBtn = document.getElementById('sendBtn');
+var micSelectEl = document.getElementById('micSelect');
 
 function setStatus(msg, kind) {
   statusEl.textContent = msg || '';
@@ -84,7 +113,41 @@ function setStatus(msg, kind) {
 }
 
 var mediaRecorder = null, chunks = [], stream = null, startTime = 0, timerInterval = null;
-var pausedTotal = 0, pauseStart = 0, isPaused = false, cancelled = false;
+var pausedTotal = 0, pauseStart = 0, isPaused = false, cancelled = false, micSwitching = false;
+// PERMINTAAN ("dropdown mikrofon, tetap sesuai pilihan terakhir sampai diganti sendiri oleh
+// user"): deviceId tersimpan PERMANEN di localStorage (bukan per-sesi) - dipakai lagi otomatis
+// di rekaman berikutnya tanpa user perlu memilih ulang, sampai user sendiri ganti pilihan.
+var MIC_DEVICE_KEY = 'chat_voice_mic_device_id';
+// Nama/label perangkat HANYA terisi browser setelah izin mic diberikan (privasi) - jadi daftar
+// ini diisi/diperbarui SETELAH getUserMedia() pertama berhasil (lihat startRecording()), bukan
+// di awal load halaman.
+function populateMicList() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  navigator.mediaDevices.enumerateDevices().then(function (devices) {
+    var mics = devices.filter(function (d) { return d.kind === 'audioinput'; });
+    // PERMINTAAN ("dropdown supaya user bisa ganti microphone JIKA tersedia beberapa"): kalau
+    // cuma ada satu (atau nol) mic, tidak ada yang perlu dipilih - sembunyikan dropdown-nya.
+    if (mics.length <= 1) { micSelectEl.style.display = 'none'; return; }
+    micSelectEl.style.display = '';
+    var saved = localStorage.getItem(MIC_DEVICE_KEY);
+    micSelectEl.innerHTML = mics.map(function (d, i) {
+      return '<option value="' + d.deviceId + '">' + (d.label || ('Mikrofon ' + (i + 1))) + '</option>';
+    }).join('');
+    if (saved && mics.some(function (d) { return d.deviceId === saved; })) micSelectEl.value = saved;
+    else localStorage.setItem(MIC_DEVICE_KEY, micSelectEl.value);
+  }).catch(function () {});
+}
+// Ganti mic = mulai ulang rekaman dengan device baru (MediaRecorder tidak mendukung mengganti
+// sumber stream di tengah jalan) - rekaman sejauh ini dibuang, timer reset, TIDAK menutup
+// jendela (beda dari trashBtn/batal - micSwitching membedakan keduanya di onRecordingStop()).
+micSelectEl.onchange = function () {
+  localStorage.setItem(MIC_DEVICE_KEY, micSelectEl.value);
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') { micSwitching = true; stopRecording(false); }
+  else { startRecording(); }
+};
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', populateMicList);
+}
 
 function formatTime(sec) {
   var m = Math.floor(sec / 60), s = sec % 60;
@@ -96,13 +159,16 @@ function updateTimer() {
   timerEl.textContent = formatTime(sec);
 }
 
-function startRecording() {
+function startRecording(skipSavedDevice) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
     setStatus('Perekaman suara tidak didukung di browser ini.', 'error');
     return;
   }
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+  var savedId = !skipSavedDevice && localStorage.getItem(MIC_DEVICE_KEY);
+  var constraints = savedId ? { audio: { deviceId: { exact: savedId } } } : { audio: true };
+  navigator.mediaDevices.getUserMedia(constraints).then(function (s) {
     stream = s;
+    populateMicList();
     var preferred = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
       .find(function (t) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t); });
     mediaRecorder = preferred ? new MediaRecorder(stream, { mimeType: preferred }) : new MediaRecorder(stream);
@@ -115,6 +181,10 @@ function startRecording() {
     updateTimer();
     barEl.classList.add('show');
   }).catch(function (e) {
+    // Perangkat tersimpan sudah dicabut/tidak tersedia lagi (OverconstrainedError, dst) - coba
+    // ulang dengan mic default alih-alih menampilkan error ke user untuk kasus yang bisa
+    // dipulihkan sendiri secara diam-diam.
+    if (savedId) { localStorage.removeItem(MIC_DEVICE_KEY); startRecording(true); return; }
     var reason = (e && e.name) ? e.name : 'error';
     setStatus('Tidak bisa mengakses mikrofon (' + reason + '). Pastikan izin mikrofon browser diizinkan untuk halaman ini.', 'error');
   });
@@ -141,24 +211,108 @@ function stopRecording(isCancel) {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
 }
+// PERBAIKAN ("baru 2 detik sudah hilang saat diputar di dalam app, tapi kalau file-nya
+// didownload utuh terdengar penuh"): dikonfirmasi user - bukan data hilang (byte-nya lengkap),
+// tapi WebM hasil MediaRecorder TIDAK PUNYA elemen Duration yang valid di header EBML-nya
+// (Chrome menulis placeholder kosong untuk rekaman live-stream). Bug dikenal luas: <audio>
+// Chrome yang diputar dari blob: URL (bukan URL jaringan biasa) memutus pemutaran lebih awal
+// untuk WebM tanpa Duration valid, meski byte lengkap ada di dalam Blob. Sesi sebelumnya sengaja
+// TIDAK menambal EBML karena risiko merusak file kalau salah implementasi - sekarang ditambal
+// dengan HATI-HATI: chatFixWebmDuration() hanya menulis ULANG value elemen Duration yang SUDAH
+// ADA di file (byte length sama persis, tidak pernah menyisipkan/mengubah ukuran elemen apa
+// pun) - kalau strukturnya tidak seperti yang diharapkan di titik mana pun, langsung fallback ke
+// blob ASLI tanpa modifikasi (try/catch + pengecekan eksplisit di tiap langkah), tidak pernah
+// mengirim file yang berisiko corrupt.
+function chatFixWebmDuration(blob, durationMs) {
+  return blob.arrayBuffer().then(function (buf) {
+    try {
+      var bytes = new Uint8Array(buf);
+      function vint(offset) {
+        if (offset >= bytes.length) return null;
+        var first = bytes[offset], mask = 0x80, len = 1;
+        while (len <= 8 && (first & mask) === 0) { mask >>= 1; len++; }
+        if (len > 8 || offset + len > bytes.length) return null;
+        return { length: len, marker: mask };
+      }
+      function readId(offset) {
+        var v = vint(offset); if (!v) return null;
+        var value = 0;
+        for (var i = 0; i < v.length; i++) value = value * 256 + bytes[offset + i];
+        return { id: value, length: v.length };
+      }
+      function readSize(offset) {
+        var v = vint(offset); if (!v) return null;
+        var firstMasked = bytes[offset] & (v.marker - 1);
+        var allOnes = firstMasked === (v.marker - 1);
+        var value = firstMasked;
+        for (var i = 1; i < v.length; i++) {
+          if (bytes[offset + i] !== 0xFF) allOnes = false;
+          value = value * 256 + bytes[offset + i];
+        }
+        return { length: v.length, value: value, unknown: allOnes };
+      }
+      // Level teratas: cari elemen Segment (0x18538067).
+      var pos = 0, segmentDataStart = -1;
+      while (pos < bytes.length) {
+        var id = readId(pos); if (!id) break;
+        var size = readSize(pos + id.length); if (!size) break;
+        var dataStart = pos + id.length + size.length;
+        if (id.id === 0x18538067) { segmentDataStart = dataStart; break; }
+        if (size.unknown) break;
+        pos = dataStart + size.value;
+      }
+      if (segmentDataStart === -1) return blob;
+      // Di dalam Segment: cari elemen Info (0x1549A966), berhenti kalau sudah masuk Cluster
+      // pertama (0x1F43B675) - Info SELALU ada sebelum Cluster pertama per spesifikasi Matroska.
+      pos = segmentDataStart;
+      var infoDataStart = -1, infoDataEnd = -1;
+      while (pos < bytes.length) {
+        var id2 = readId(pos); if (!id2) break;
+        var size2 = readSize(pos + id2.length); if (!size2) break;
+        var dataStart2 = pos + id2.length + size2.length;
+        if (id2.id === 0x1549A966) { infoDataStart = dataStart2; infoDataEnd = size2.unknown ? bytes.length : (dataStart2 + size2.value); break; }
+        if (id2.id === 0x1F43B675 || size2.unknown) break;
+        pos = dataStart2 + size2.value;
+      }
+      if (infoDataStart === -1) return blob;
+      // Di dalam Info: baca TimecodeScale (0x2AD7B1, default 1.000.000ns kalau tak ada) dan
+      // cari elemen Duration (0x4489) YANG SUDAH ADA - hanya menulis ulang isinya, tidak pernah
+      // menyisipkan elemen baru (itu butuh mengubah ukuran Info, di luar cakupan perbaikan ini).
+      pos = infoDataStart;
+      var timecodeScale = 1000000, durationOffset = -1, durationLen = 0;
+      while (pos < infoDataEnd) {
+        var id3 = readId(pos); if (!id3) break;
+        var size3 = readSize(pos + id3.length); if (!size3) break;
+        var dataStart3 = pos + id3.length + size3.length;
+        if (id3.id === 0x2AD7B1) {
+          var tcs = 0; for (var k = 0; k < size3.value; k++) tcs = tcs * 256 + bytes[dataStart3 + k];
+          if (tcs > 0) timecodeScale = tcs;
+        } else if (id3.id === 0x4489) {
+          durationOffset = dataStart3; durationLen = size3.value;
+        }
+        pos = dataStart3 + size3.value;
+      }
+      if (durationOffset === -1 || (durationLen !== 4 && durationLen !== 8)) return blob;
+      var durationUnits = durationMs * 1e6 / timecodeScale;
+      var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      if (durationLen === 8) view.setFloat64(durationOffset, durationUnits, false);
+      else view.setFloat32(durationOffset, durationUnits, false);
+      return new Blob([bytes], { type: blob.type });
+    } catch (e) { return blob; }
+  }).catch(function () { return blob; });
+}
 function onRecordingStop() {
-  // PERBAIKAN ("hasil 0 detik, padahal rekam 10 detik"): bug dikenal luas - WebM hasil
-  // MediaRecorder Chrome sering punya metadata Duration yang salah/kosong di headernya
-  // (Chrome tidak menulis ulang durasi yang benar untuk rekaman live-stream begitu berhenti),
-  // jadi player <audio> HTML5 menampilkan 0:00 meski audionya sendiri utuh & bisa diputar
-  // penuh. BUKAN data hilang - dibuktikan lewat pengecekan blob.size>400 di bawah yang tetap
-  // lolos untuk rekaman panjang. Solusi AMAN (tanpa membongkar/menambal byte biner EBML yang
-  // berisiko merusak file kalau salah implementasi): ukur durasi SENDIRI dari timestamp mulai
-  // (startTime, dikurangi total waktu jeda) - chat bubble menampilkan durasi yang BENAR ini,
-  // bukan bergantung ke metadata WebM yang salah.
+  if (micSwitching) { micSwitching = false; chunks = []; startRecording(); return; }
   if (cancelled) { window.close(); return; }
   var durationSec = Math.max(1, Math.round((Date.now() - startTime - pausedTotal) / 1000));
+  var durationMs = Math.max(1000, Date.now() - startTime - pausedTotal);
   if (chunks.length === 0) { window.close(); return; }
   var mimeType = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
   var blob = new Blob(chunks, { type: mimeType });
   chunks = [];
   if (blob.size < 400) { window.close(); return; }
-  uploadRecording(blob, mimeType, durationSec);
+  var fixPromise = (mimeType.indexOf('webm') !== -1) ? chatFixWebmDuration(blob, durationMs) : Promise.resolve(blob);
+  fixPromise.then(function (finalBlob) { uploadRecording(finalBlob, mimeType, durationSec); });
 }
 function formatDurationLabel(sec) {
   var m = Math.floor(sec / 60), s = sec % 60;
