@@ -48,18 +48,16 @@
   .send-btn{width:36px;height:36px;border-radius:50%;background:#25d366;color:#fff;border:none;
     font-size:15px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
   .send-btn:disabled{opacity:.5;cursor:default}
-  /* PERMINTAAN ("pilihan rekam: suara dalam aplikasi, hanya microphone, atau keduanya"):
-     segmented control kecil - ikon saja tanpa tulisan, senada gaya minim-teks halaman chat.
-     Pilihan tersimpan & dipakai lagi otomatis (localStorage), pola SAMA seperti pilihan mic. */
-  .src-seg{display:flex;gap:2px;background:rgba(0,0,0,.06);border-radius:999px;padding:2px;flex-shrink:0}
-  .src-seg button{border:none;background:none;cursor:pointer;font-size:12px;line-height:1;
-    padding:3px 7px;border-radius:999px;color:#54656f}
-  .src-seg button.active{background:#fff;color:#008069;box-shadow:0 1px 2px rgba(0,0,0,.18)}
-  @media(prefers-color-scheme:dark){
-    .src-seg{background:rgba(255,255,255,.1)}
-    .src-seg button{color:rgba(233,237,239,.7)}
-    .src-seg button.active{background:#005c4b;color:#fff}
-  }
+  /* PERMINTAAN ("pilihan rekam: suara dalam aplikasi, hanya microphone, atau keduanya").
+     PERBAIKAN (dilaporkan: "tombol kirim tidak ada" + "tidak ada pilihan hanya suara aplikasi"):
+     versi SEBELUMNYA memakai segmented control 3 tombol ikon (🎤/🔊/🎤🔊) yang memakan ~90px -
+     di bar selebar 360px itu mendorong tombol jeda & KIRIM keluar dari area yang terlihat,
+     sekaligus ikonnya sendiri ambigu (🔊 tidak terbaca sebagai "suara aplikasi"). Diganti
+     dropdown NATIVE berlabel kata (pola SAMA seperti .mic-select) - jauh lebih hemat ruang dan
+     maksudnya jelas terbaca, tanpa ikon speaker sama sekali. */
+  .src-select{flex-shrink:0;max-width:96px;font-size:9.5px;color:#54656f;background:none;
+    border:none;cursor:pointer;padding:2px 0}
+  @media(prefers-color-scheme:dark){ .src-select{color:rgba(233,237,239,.65)} }
   .status{text-align:center;font-size:10.5px;color:#e53935;padding:0 10px 8px;line-height:1.3}
   .status.success{color:#128C7E}
   /* PERMINTAAN ("hilangkan tulisan 'Mengirim...' dan blok panjangnya, cukup panah kembali di
@@ -109,12 +107,13 @@
   <div class="card-head" id="cardHead"><span class="ch-dot"></span><span>Pesan Suara</span></div>
   <div class="bar" id="bar">
     <button type="button" class="icon-btn" id="trashBtn" title="Batal">🗑️</button>
-    <!-- PERMINTAAN ("pilihan rekam: suara dalam aplikasi / hanya microphone / keduanya") -->
-    <div class="src-seg" id="srcSeg" title="Sumber rekaman">
-      <button type="button" data-src="mic" title="Hanya mikrofon">🎤</button>
-      <button type="button" data-src="system" title="Hanya suara aplikasi (siaran di layar TV)">🔊</button>
-      <button type="button" data-src="both" title="Mikrofon + suara aplikasi">🎤🔊</button>
-    </div>
+    <!-- PERMINTAAN ("pilihan rekam: suara dalam aplikasi / hanya microphone / keduanya" +
+         "ganti icon microphone dengan mic podcast 🎙️, tanpa icon speaker") -->
+    <select id="srcSelect" class="src-select" title="Sumber rekaman">
+      <option value="mic">🎙️ Mikrofon</option>
+      <option value="system">Suara aplikasi</option>
+      <option value="both">Mikrofon + aplikasi</option>
+    </select>
     <select id="micSelect" class="mic-select" title="Pilih mikrofon" style="display:none"></select>
     <span class="dot" id="dot"></span>
     <span class="timer" id="timer">0:00</span>
@@ -311,24 +310,20 @@ function startRecording(skipSavedDevice) {
 // Pemilih sumber: mengganti pilihan saat sedang merekam otomatis MENGULANG rekaman dengan sumber
 // baru (MediaRecorder tidak bisa berganti sumber di tengah jalan) - pola SAMA seperti ganti mic.
 function renderSourceSeg() {
-  var seg = document.getElementById('srcSeg'); if (!seg) return;
-  seg.querySelectorAll('button').forEach(function (b) {
-    b.classList.toggle('active', b.getAttribute('data-src') === recSource);
-  });
+  var sel = document.getElementById('srcSelect'); if (!sel) return;
+  sel.value = recSource;
 }
-(function bindSourceSeg() {
-  var seg = document.getElementById('srcSeg'); if (!seg) return;
-  seg.addEventListener('click', function (ev) {
-    var btn = ev.target.closest('button[data-src]'); if (!btn) return;
-    var next = btn.getAttribute('data-src');
+(function bindSourceSel() {
+  var sel = document.getElementById('srcSelect'); if (!sel) return;
+  sel.onchange = function () {
+    var next = sel.value;
     if (next === recSource) return;
     recSource = next;
     try { localStorage.setItem(SRC_KEY, next); } catch (e) {}
-    renderSourceSeg();
     setStatus('', '');
     if (mediaRecorder && mediaRecorder.state !== 'inactive') { micSwitching = true; stopRecording(false); }
     else { startRecording(); }
-  });
+  };
   renderSourceSeg();
 })();
 function togglePause() {
