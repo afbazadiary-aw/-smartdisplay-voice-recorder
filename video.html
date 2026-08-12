@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Video Lingkaran</title>
+<title>Chat Video</title>
 <meta name="theme-color" content="#008069">
 <style>
   :root{color-scheme:light dark}
@@ -46,7 +46,7 @@
 </head>
 <body>
 <div class="card">
-  <div class="card-head"><span class="ch-dot" id="dot"></span><span id="headText">Video Lingkaran</span></div>
+  <div class="card-head"><span class="ch-dot" id="dot"></span><span id="headText">Chat Video</span></div>
   <div class="stage">
     <div class="ring"><video id="preview" playsinline muted class="mirror"></video></div>
     <div class="timer" id="timer">0:00</div>
@@ -158,7 +158,7 @@ function resetToIdle() {
   previewEl.src = ''; previewEl.loop = false; previewEl.muted = true;
   previewEl.classList.add('mirror');
   timerEl.textContent = '0:00';
-  headEl.textContent = 'Video Lingkaran';
+  headEl.textContent = 'Chat Video';
   controlsEl.innerHTML = '<button type="button" class="btn btn-main" id="mainBtn" title="Mulai merekam">⏺</button>';
   mainBtn = document.getElementById('mainBtn');
   mainBtn.onclick = onMainClick;
@@ -174,7 +174,7 @@ function sendVideo() {
   if (!blob) return;
   var durationSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
   var mimeType = blob.type || 'video/webm';
-  headEl.textContent = 'Video Lingkaran';
+  headEl.textContent = 'Chat Video';
   controlsEl.innerHTML = '<button type="button" class="btn btn-back" id="backBtn" title="Kembali ke Chat">&#8592;</button>';
   document.getElementById('backBtn').onclick = function () { window.close(); };
   previewEl.pause();
