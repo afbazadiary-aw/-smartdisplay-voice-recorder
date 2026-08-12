@@ -21,6 +21,9 @@
   .card-head{display:flex;align-items:center;gap:8px;background:#008069;color:#fff;
     padding:7px 12px;font-size:12.5px;font-weight:700;flex-shrink:0}
   .ch-dot{width:8px;height:8px;border-radius:50%;background:#ff5c5c;flex-shrink:0}
+  /* Tombol kembali - sama persis dengan yang di Chat Audio, supaya dua halaman ini konsisten. */
+  .head-back{background:none;border:none;color:#fff;font-size:17px;line-height:1;cursor:pointer;
+    padding:0 2px;margin-right:2px;flex-shrink:0}
   .ch-dot.rec{animation:pulse 1.1s ease-in-out infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
   .stage{padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px}
@@ -46,7 +49,7 @@
 </head>
 <body>
 <div class="card">
-  <div class="card-head"><span class="ch-dot" id="dot"></span><span id="headText">Chat Video</span></div>
+  <div class="card-head"><button type="button" class="head-back" id="headBackBtn" title="Kembali ke Chat" aria-label="Kembali ke Chat">&#8592;</button><span class="ch-dot" id="dot"></span><span id="headText">Chat Video</span></div>
   <div class="stage">
     <div class="ring"><video id="preview" playsinline muted class="mirror"></video></div>
     <div class="timer" id="timer">0:00</div>
@@ -108,7 +111,7 @@ function startPreview() {
   });
 }
 function startRecording() {
-  if (!stream) return;
+  if (!stream) { setStatus('Kamera belum siap - izinkan akses kamera & mikrofon untuk halaman ini, lalu coba lagi.'); return; }
   var preferred = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
     .find(function (t) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t); });
   // Bitrate dijepit juga - constraint kamera saja tidak menjamin ukuran berkas kecil kalau
@@ -171,7 +174,13 @@ function onMainClick() {
 // Pengiriman berjalan di LATAR BELAKANG - layar langsung berganti tombol kembali, sesuai pola
 // perekam suara ("jangan terkesan lambat"). Pesan galat hanya muncul kalau BENAR-BENAR gagal.
 function sendVideo() {
-  if (!blob) return;
+  // PERBAIKAN (dilaporkan: "ditekan kirim seperti TIDAK ADA AKSI sama sekali"): dulu baris ini
+  // hanya "if (!blob) return;" - kalau karena suatu sebab rekamannya tidak tersimpan, tombol
+  // kirim benar-benar tidak melakukan apa pun DAN tidak mengatakan apa pun. Tidak boleh ada
+  // jalan keluar diam-diam di sini; tiap sebab harus terbaca di layar.
+  if (!blob) { setStatus('Belum ada rekaman untuk dikirim - tekan tombol merah dulu untuk merekam.'); return; }
+  if (!PARAMS.webapp) { setStatus('Alamat aplikasi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol 🎥 di Chat.'); return; }
+  if (!PARAMS.token || !PARAMS.groupId) { setStatus('Data grup/sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol 🎥 di Chat.'); return; }
   var durationSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
   var mimeType = blob.type || 'video/webm';
   headEl.textContent = 'Chat Video';
@@ -204,9 +213,17 @@ function sendVideo() {
       })
       .catch(function (err) { setStatus('Gagal mengirim (' + sizeMb + ' MB): ' + ((err && err.message) || 'koneksi terputus')); });
   };
+  reader.onerror = function () { setStatus('Gagal membaca hasil rekaman di perangkat ini.'); };
   reader.readAsDataURL(blob);
 }
 mainBtn.onclick = onMainClick;
+// Tombol kembali di header - tersedia kapan saja. Kamera & mikrofon dimatikan dulu supaya
+// lampu indikator perangkat tidak tetap menyala setelah jendelanya ditutup.
+document.getElementById('headBackBtn').onclick = function () {
+  try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch (e) {}
+  try { if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+  window.close();
+};
 if (PARAMS.token && PARAMS.groupId && PARAMS.webapp) {
   startPreview();
 } else {

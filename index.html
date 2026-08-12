@@ -40,6 +40,12 @@
   .card{width:100%;background:#111b21;display:flex;flex-direction:column;justify-content:center}
   .card-head{display:flex;align-items:center;gap:8px;background:#008069;color:#fff;
     padding:7px 12px;font-size:12.5px;font-weight:700;flex-shrink:0}
+  /* PERMINTAAN ("sediakan tombol kembali, supaya kalau tidak jadi merekam mudah kembali ke
+     halaman chat"): panah di ujung KIRI header - posisi yang lazim untuk "kembali" di aplikasi
+     mana pun, jadi tidak perlu tulisan penjelas. Menutup jendela perekam = kembali ke halaman
+     chat yang memang masih terbuka di baliknya. */
+  .head-back{background:none;border:none;color:#fff;font-size:17px;line-height:1;cursor:pointer;
+    padding:0 2px;margin-right:2px;flex-shrink:0}
   .card-head .ch-dot{width:8px;height:8px;border-radius:50%;background:#ff5c5c;flex-shrink:0;
     animation:chatRecPulse 1.1s ease-in-out infinite}
   .bar{display:none;align-items:center;gap:9px;height:62px;padding:0 12px}
@@ -153,7 +159,7 @@
 </head>
 <body>
 <div class="card" id="card">
-  <div class="card-head" id="cardHead"><span class="ch-dot"></span><span>Chat Audio</span></div>
+  <div class="card-head" id="cardHead"><button type="button" class="head-back" id="headBackBtn" title="Kembali ke Chat" aria-label="Kembali ke Chat">&#8592;</button><span class="ch-dot"></span><span>Chat Audio</span></div>
   <div class="bar" id="bar">
     <button type="button" class="icon-btn" id="trashBtn" title="Batal">🗑️</button>
     <!-- PERMINTAAN ("pilihan rekam: suara dalam aplikasi / hanya microphone / keduanya" +
@@ -218,6 +224,15 @@ var backErrEl = document.getElementById('backErr');
 function showBackScreen() { backScreenEl.classList.add('show'); }
 function showBackError(msg) { backErrEl.textContent = msg; backErrEl.style.display = 'block'; }
 document.getElementById('backBtn').onclick = function () { window.close(); };
+// Tombol kembali di header - selalu tersedia, termasuk SEBELUM merekam apa pun. Kalau ada
+// rekaman yang sedang berjalan, hentikan dulu supaya mikrofon benar-benar dilepas (indikator
+// "sedang merekam" milik browser tidak menggantung) sebelum jendelanya ditutup.
+document.getElementById('headBackBtn').onclick = function () {
+  try { if (mediaRecorder && mediaRecorder.state !== 'inactive') { cancelled = true; mediaRecorder.stop(); } } catch (e) {}
+  try { if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+  try { stopExtraStreams(); } catch (e) {}
+  window.close();
+};
 
 var mediaRecorder = null, chunks = [], stream = null, startTime = 0, timerInterval = null;
 var pausedTotal = 0, pauseStart = 0, isPaused = false, cancelled = false, micSwitching = false;
@@ -605,14 +620,22 @@ function uploadRecording(blob, mimeType, durationSec) {
     form.append('mimeType', mimeType);
     form.append('audioBase64', base64);
     form.append('durationLabel', '🎤 ' + formatDurationLabel(durationSec));
+    // PERBAIKAN (dilaporkan: "sekarang audio juga gagal terkirim"): dulu respons langsung
+    // di-.json() - kalau server menjawab halaman galat HTML (bukan JSON), parsing gagal dan
+    // SEMUA sebab jatuh ke satu kalimat "periksa koneksi internet" yang menyesatkan. Sekarang
+    // dibaca sebagai teks dulu, jadi status HTTP, isi jawaban, dan ukuran berkas terlihat -
+    // pola sama dengan video.html.
+    var sizeMb = (blob.size / 1048576).toFixed(1);
     fetch(PARAMS.webapp, { method: 'POST', body: form })
-      .then(function (res) { return res.json(); })
-      .then(function (json) {
-        if (json && json.error) { showBackError(json.error); return; }
-        window.close();
+      .then(function (r) { return r.text().then(function (t) { return { status: r.status, text: t }; }); })
+      .then(function (res) {
+        var json = null; try { json = JSON.parse(res.text); } catch (e) {}
+        if (json && json.error) { showBackError(json.error + ' (' + sizeMb + ' MB)'); return; }
+        if (json && json.success) { window.close(); return; }
+        showBackError('Server menjawab ' + res.status + ' (' + sizeMb + ' MB). ' + String(res.text).replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
       })
-      .catch(function () {
-        showBackError('Gagal mengirim - periksa koneksi internet.');
+      .catch(function (err) {
+        showBackError('Gagal mengirim (' + sizeMb + ' MB): ' + ((err && err.message) || 'koneksi terputus'));
       });
   };
   reader.readAsDataURL(blob);
@@ -641,7 +664,17 @@ playBtn.onclick = togglePreviewPlay;
 // Kirim HANYA memakai rekaman yang sudah selesai & sempat didengarkan - kalau tombol ini ditekan
 // saat masih merekam (seharusnya tidak bisa, sendBtn dimatikan), perekaman dihentikan dulu.
 sendBtn.onclick = function () {
-  if (!recordedBlob) { if (mediaRecorder && mediaRecorder.state !== 'inactive') stopRecording(false); return; }
+  // Sama seperti di video.html: tidak boleh berhenti diam-diam - kalau tidak ada yang bisa
+  // dikirim, katakan alasannya.
+  if (!recordedBlob) {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') { stopRecording(false); return; }
+    setStatus('Belum ada rekaman untuk dikirim - tekan tombol merah dulu untuk merekam.', 'error');
+    return;
+  }
+  if (!PARAMS.webapp || !PARAMS.token || !PARAMS.groupId) {
+    setStatus('Data sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol mikrofon di Chat.', 'error');
+    return;
+  }
   try { previewAudioEl.pause(); } catch (e) {}
   uploadRecording(recordedBlob, recordedMime, recordedSec);
 };
