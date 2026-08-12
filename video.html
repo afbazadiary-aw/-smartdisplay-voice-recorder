@@ -88,7 +88,16 @@ function startPreview() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
     setStatus('Perekaman video tidak didukung di browser ini.'); mainBtn.disabled = true; return;
   }
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true }).then(function (s) {
+  // PERBAIKAN (dilaporkan: "video lingkaran dikirim tapi tidak muncul di chat sama sekali"):
+  // kamera default merekam resolusi PENUH (bisa 1080p) - beberapa puluh detik saja sudah puluhan
+  // MB, dan seluruh isinya harus dikirim sebagai base64 dalam SATU POST lalu di-decode di Apps
+  // Script. Itu titik paling mungkin gagalnya (batas ukuran/waktu eksekusi), dan gagalnya diam-
+  // diam. Padahal di chat videonya cuma tampil dalam lingkaran 160px - 480x480 sudah lebih dari
+  // cukup. Resolusi & bitrate dibatasi di sini supaya berkasnya kecil sejak awal.
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 } },
+    audio: true
+  }).then(function (s) {
     stream = s;
     previewEl.srcObject = s; previewEl.muted = true;
     previewEl.play().catch(function () {});
@@ -102,7 +111,11 @@ function startRecording() {
   if (!stream) return;
   var preferred = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
     .find(function (t) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t); });
-  recorder = preferred ? new MediaRecorder(stream, { mimeType: preferred }) : new MediaRecorder(stream);
+  // Bitrate dijepit juga - constraint kamera saja tidak menjamin ukuran berkas kecil kalau
+  // perangkat mengabaikan permintaan resolusi.
+  var opts = { videoBitsPerSecond: 700000, audioBitsPerSecond: 64000 };
+  if (preferred) opts.mimeType = preferred;
+  recorder = new MediaRecorder(stream, opts);
   chunks = [];
   recorder.ondataavailable = function (e) { if (e.data && e.data.size > 0) chunks.push(e.data); };
   recorder.onstop = onRecordingStop;
@@ -176,13 +189,20 @@ function sendVideo() {
     form.append('durationLabel', '🎥 ' + fmt(durationSec));
     // FormData/multipart adalah content-type yang aman-CORS, jadi TIDAK memicu preflight OPTIONS
     // (Apps Script tidak menangani doOptions dengan baik) - pola sama dengan perekam suara.
+    // PERBAIKAN (gagal DIAM-DIAM): dulu respons langsung di-.json() - kalau server menjawab
+    // halaman galat HTML (mis. payload ditolak), parsing gagal dan semuanya jatuh ke satu pesan
+    // "periksa koneksi internet" yang menyesatkan. Sekarang respons dibaca sebagai TEKS dulu,
+    // jadi penyebab sebenarnya bisa terlihat & dilaporkan, bukan hilang.
+    var sizeMb = (blob.size / 1048576).toFixed(1);
     fetch(PARAMS.webapp, { method: 'POST', body: form })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        if (j && j.error) { setStatus('Gagal: ' + j.error); return; }
-        window.close();
+      .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, status: r.status, text: t }; }); })
+      .then(function (res) {
+        var j = null; try { j = JSON.parse(res.text); } catch (e) {}
+        if (j && j.error) { setStatus('Gagal: ' + j.error + ' (' + sizeMb + ' MB)'); return; }
+        if (j && (j.success || j.id || j.message)) { window.close(); return; }
+        setStatus('Gagal kirim - server menjawab ' + res.status + ' (' + sizeMb + ' MB). ' + String(res.text).replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
       })
-      .catch(function () { setStatus('Gagal mengirim - periksa koneksi internet.'); });
+      .catch(function (err) { setStatus('Gagal mengirim (' + sizeMb + ' MB): ' + ((err && err.message) || 'koneksi terputus')); });
   };
   reader.readAsDataURL(blob);
 }

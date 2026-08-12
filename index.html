@@ -15,7 +15,12 @@
 <style>
   :root{color-scheme:light dark}
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:#f0f0f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden}
+  /* PERMINTAAN ("jadikan background & warna pop perekaman audio PERSIS seperti perekaman video
+     lingkaran, biar serasi"): palet disamakan dengan video.html - latar halaman #0b141a dan badan
+     kartu #111b21 (keduanya warna gelap khas WhatsApp), bukan lagi abu terang #f0f0f0/#efeae2
+     yang membuat kedua halaman terasa dari aplikasi berbeda. Header hijau #008069 memang sudah
+     sama sejak awal, jadi tidak disentuh. */
+  html,body{margin:0;height:100%;background:#0b141a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden}
   /* PERBAIKAN (terlihat di Image/Tutupi top bar.png - ada sisa putih kosong di bawah bar):
      kartu MENGISI tinggi jendela popup, jadi tidak ada area menganggur berwarna beda. Di layar
      tinggi (mode kartu mengambang HP, lihat media query di bawah) perilaku lama dipulihkan. */
@@ -32,7 +37,7 @@
      WhatsApp #008069 (SAMA PERSIS dengan .chat-overlay-header), badan warna wallpaper chat
      #efeae2, sudut membulat, dan aksen hijau #25d366 untuk tombol kirim (tidak ada lagi biru
      yang asing dari palet chat). */
-  .card{width:100%;background:#efeae2;display:flex;flex-direction:column;justify-content:center}
+  .card{width:100%;background:#111b21;display:flex;flex-direction:column;justify-content:center}
   .card-head{display:flex;align-items:center;gap:8px;background:#008069;color:#fff;
     padding:7px 12px;font-size:12.5px;font-weight:700;flex-shrink:0}
   .card-head .ch-dot{width:8px;height:8px;border-radius:50%;background:#ff5c5c;flex-shrink:0;
@@ -50,21 +55,21 @@
     .src-select,.mic-select{max-width:none;flex:1 1 auto;font-size:11px}
   }
   .icon-btn{background:none;border:none;font-size:19px;cursor:pointer;padding:6px;
-    color:#54656f;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center}
-  .icon-btn:hover{background:rgba(0,0,0,.06)}
+    color:rgba(233,237,239,.75);flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center}
+  .icon-btn:hover{background:rgba(255,255,255,.08)}
   .dot{width:9px;height:9px;border-radius:50%;background:#e53935;flex-shrink:0;
     animation:chatRecPulse 1.1s ease-in-out infinite}
   .dot.paused{animation:none;opacity:.3}
   @keyframes chatRecPulse{0%,100%{opacity:1}50%{opacity:.25}}
-  .timer{font-size:13.5px;font-weight:600;color:#111;font-variant-numeric:tabular-nums;flex-shrink:0}
+  .timer{font-size:13.5px;font-weight:600;color:#e9edef;font-variant-numeric:tabular-nums;flex-shrink:0}
   /* PERMINTAAN ("dropdown pilih mikrofon, tetap sesuai pilihan terakhir sampai diganti"):
      select NATIVE (bukan dropdown custom) - browser yang urus popup daftar device, kita hanya
      styling supaya blend jadi kontrol kecil ikon-ish, konsisten dengan bar minim-teks ini. */
-  .mic-select{flex-shrink:0;max-width:64px;font-size:9.5px;color:#54656f;background:none;
+  .mic-select{flex-shrink:0;max-width:64px;font-size:9.5px;color:rgba(233,237,239,.7);background:#111b21;
     border:none;cursor:pointer;padding:2px 0}
   @media(prefers-color-scheme:dark){ .mic-select{color:rgba(233,237,239,.65)} }
   .waveform{flex:1;height:2px;min-width:40px;
-    background-image:linear-gradient(to right,#cfd4d8 55%,transparent 0%);
+    background-image:linear-gradient(to right,#3b4a54 55%,transparent 0%);
     background-size:6px 2px;background-repeat:repeat-x}
   /* PERMINTAAN ("tombol perekaman berupa BULAT MERAH, saat berjalan jadi tombol stop"): tombol
      khusus rekam/stop - lingkaran merah polos saat siap, dan saat merekam muncul KOTAK PUTIH di
@@ -74,9 +79,13 @@
     flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;
     box-shadow:0 1px 3px rgba(0,0,0,.25)}
   .rec-btn:hover{background:#f04a44}
-  .rec-inner{width:0;height:0;background:#fff;border-radius:2px;display:block;
-    transition:width .15s ease,height .15s ease}
-  .rec-btn.recording .rec-inner{width:13px;height:13px}
+  /* PERMINTAAN ("saat siap, di dalam tombol merah ada BULATAN PUTIH seukuran kotak putih yang
+     muncul saat merekam"): bentuknya yang berubah, bukan ukurannya - bulat saat siap, kotak saat
+     merekam. Ukurannya tetap 13px di kedua keadaan supaya pergantiannya terasa sebagai satu
+     tombol yang sama berubah bentuk, bukan sesuatu yang muncul-hilang. */
+  .rec-inner{width:13px;height:13px;background:#fff;border-radius:50%;display:block;
+    transition:border-radius .15s ease}
+  .rec-btn.recording .rec-inner{border-radius:2px}
   .send-btn{width:36px;height:36px;border-radius:50%;background:#25d366;color:#fff;border:none;
     font-size:15px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
   .send-btn:disabled{opacity:.5;cursor:default}
@@ -87,7 +96,7 @@
      sekaligus ikonnya sendiri ambigu (🔊 tidak terbaca sebagai "suara aplikasi"). Diganti
      dropdown NATIVE berlabel kata (pola SAMA seperti .mic-select) - jauh lebih hemat ruang dan
      maksudnya jelas terbaca, tanpa ikon speaker sama sekali. */
-  .src-select{flex-shrink:0;max-width:96px;font-size:9.5px;color:#54656f;background:none;
+  .src-select{flex-shrink:0;max-width:96px;font-size:9.5px;color:rgba(233,237,239,.7);background:#111b21;
     border:none;cursor:pointer;padding:2px 0}
   @media(prefers-color-scheme:dark){ .src-select{color:rgba(233,237,239,.65)} }
   .status{text-align:center;font-size:10.5px;color:#e53935;padding:0 10px 8px;line-height:1.3}
@@ -131,10 +140,14 @@
      bungkus bar jadi KARTU mengambang di tengah layar dengan latar redup di belakangnya, gaya
      dialog/bottom-sheet yang lazim di app ini, supaya terasa seperti bagian dari aplikasi
      walau teknisnya tetap tab terpisah. */
+  /* PERMINTAAN ("warna POP perekaman audio jadikan seperti pop perekaman video lingkaran"):
+     dulu latar belakangnya lapisan redup semi-transparan (rgba hitam) - itu membuat warnanya
+     berubah-ubah mengikuti apa pun yang ada di belakangnya. video.html memakai warna PADAT
+     #0b141a; disamakan supaya kedua pop benar-benar identik. Ukuran & bayangan kartu juga
+     disamakan (min(360px,94vw), bayangan .45). */
   @media(min-height:200px){
-    body{background:rgba(0,0,0,.55);align-items:center}
-    .card{width:min(360px,92vw);border-radius:16px;box-shadow:0 12px 34px rgba(0,0,0,.35);overflow:hidden}
-    @media(prefers-color-scheme:dark){ body{background:rgba(0,0,0,.72)} }
+    body{background:#0b141a;align-items:center}
+    .card{width:min(360px,94vw);border-radius:16px;box-shadow:0 12px 34px rgba(0,0,0,.45);overflow:hidden}
   }
 </style>
 </head>
@@ -604,7 +617,18 @@ function uploadRecording(blob, mimeType, durationSec) {
   };
   reader.readAsDataURL(blob);
 }
-trashBtn.onclick = function () { stopRecording(true); };
+// PERBAIKAN (dilaporkan: "sudah klik tong sampah tapi tombol kirim masih bisa ditekan"): dulu
+// tong sampah HANYA memanggil stopRecording(true), yang berarti "batalkan perekaman yang sedang
+// berjalan lalu tutup jendela". Setelah ada keadaan REVIEW, perekamnya sudah inactive - jadi
+// pemanggilan itu tidak melakukan apa pun sama sekali: rekaman tetap tersimpan dan tombol kirim
+// tetap hidup. Sekarang tong sampah membaca keadaan: sedang merekam -> batal & tutup seperti
+// dulu; sudah ada hasil rekaman -> hasilnya DIBUANG dan tampilan kembali ke keadaan siap
+// (tombol kirim otomatis redup lagi lewat setIdleUi()).
+trashBtn.onclick = function () {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') { stopRecording(true); return; }
+  if (recordedBlob) { setIdleUi(); setStatus('', ''); return; }
+  window.close();
+};
 // Satu tombol KHUSUS rekam/stop: siap -> mulai, sedang merekam -> berhenti, sudah ada hasil ->
 // rekam ulang (hasil lama dibuang lebih dulu supaya tidak ada blob nyasar ikut terkirim).
 recBtn.onclick = function () {
