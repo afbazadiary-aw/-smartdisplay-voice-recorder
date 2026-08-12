@@ -39,6 +39,16 @@
     animation:chatRecPulse 1.1s ease-in-out infinite}
   .bar{display:none;align-items:center;gap:9px;height:62px;padding:0 12px}
   .bar.show{display:flex}
+  /* PERBAIKAN (dilaporkan: "di HP tombol kirim audio TERPOTONG sehingga audio tidak bisa
+     dikirim"): di layar sempit isi bar melebihi lebar kartu, dan karena semua kontrol
+     flex-shrink:0 yang paling kanan (tombol KIRIM) terdorong keluar area terlihat. Di bawah
+     420px bar dibolehkan membungkus ke baris kedua & tingginya mengikuti isi, grafik dipindah
+     ke baris sendiri - semua tombol tetap terjangkau. */
+  @media(max-width:420px){
+    .bar{flex-wrap:wrap;height:auto;padding:8px 10px;gap:8px;justify-content:flex-end}
+    .waveform{order:-1;flex-basis:100%;margin:2px 0}
+    .src-select,.mic-select{max-width:none;flex:1 1 auto;font-size:11px}
+  }
   .icon-btn{background:none;border:none;font-size:19px;cursor:pointer;padding:6px;
     color:#54656f;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center}
   .icon-btn:hover{background:rgba(0,0,0,.06)}
@@ -255,11 +265,20 @@ function getSystemAudioStream() {
   }
   // video:true WAJIB diminta - Chrome hanya menawarkan opsi "bagikan audio" kalau ada video
   // dalam permintaan; track videonya dibuang segera setelah user memilih.
+  // PERBAIKAN (dilaporkan + Image/tulisan terpotong.png: "tulisan untuk memilih tab TERPOTONG"):
+  // dialog "Pilih informasi yang akan dibagikan" itu milik BROWSER dan digambar DI DALAM jendela
+  // ini - di popup setinggi ~100px dialognya pasti terpotong & tidak bisa dibaca/dipilih. Jendela
+  // dibesarkan SEMENTARA sebelum dialog muncul, lalu dikembalikan ke ukuran ringkas setelah user
+  // memilih (atau membatalkan). resizeTo() diizinkan browser untuk jendela yang memang dibuka
+  // lewat script, seperti jendela ini.
+  var restore = function () { try { window.resizeTo(430, 150); } catch (e) {} };
+  try { window.resizeTo(620, 700); } catch (e) {}
   return navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).then(function (ds) {
+    restore();
     ds.getVideoTracks().forEach(function (t) { t.stop(); ds.removeTrack(t); });
     if (!ds.getAudioTracks().length) throw new Error('no-audio');
     return ds;
-  });
+  }).catch(function (e) { restore(); throw e; });
 }
 function buildRecordingStream(skipSavedDevice) {
   var savedId = !skipSavedDevice && localStorage.getItem(MIC_DEVICE_KEY);
@@ -341,6 +360,17 @@ function renderSourceSeg() {
   };
   renderSourceSeg();
 })();
+// Tampilan "siap merekam": bar terlihat (supaya pengaturan sumber/mikrofon bisa diatur dulu),
+// titik merah tidak berkedip, timer 0:00, tombol utama berbentuk ▶ (mulai).
+function setIdleUi() {
+  barEl.classList.add('show');
+  dotEl.classList.add('paused');
+  timerEl.textContent = '0:00';
+  pauseBtn.textContent = '▶️';
+  pauseBtn.title = 'Mulai merekam';
+  sendBtn.disabled = true;
+  populateMicList();
+}
 function togglePause() {
   if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
   if (isPaused) {
@@ -510,14 +540,19 @@ function uploadRecording(blob, mimeType, durationSec) {
   reader.readAsDataURL(blob);
 }
 trashBtn.onclick = function () { stopRecording(true); };
-pauseBtn.onclick = togglePause;
+// PERMINTAAN: tombol ini MEMULAI perekaman saat masih siap, lalu jadi jeda/lanjut setelah jalan.
+pauseBtn.onclick = function () {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') { startRecording(); return; }
+  togglePause();
+};
 sendBtn.onclick = function () { stopRecording(false); };
 
 if (PARAMS.token && PARAMS.groupId && PARAMS.webapp) {
-  // PERMINTAAN ("user merasa itu bagian dari aplikasi"): langsung mulai rekam begitu halaman
-  // terbuka - tidak ada langkah "tekan rekam" manual terpisah, persis seperti menekan mic di
-  // WhatsApp langsung mulai merekam.
-  startRecording();
+  // PERMINTAAN (revisi - "jangan otomatis langsung merekam, karena di halaman perekaman ada
+  // pengaturan sumber audio dll - user yang memulai di sini"): halaman terbuka dalam keadaan
+  // SIAP, bukan sudah merekam. User mengatur sumber & mikrofon dulu, baru menekan ▶ untuk mulai
+  // (tombol yang sama berganti peran jadi ⏸ jeda setelah berjalan - lihat setIdleUi()).
+  setIdleUi();
 } else {
   // PERMINTAAN ("keterangan jangan membingungkan"): kalimat lama ("Tautan tidak lengkap")
   // memakai istilah teknis yang tidak berarti apa-apa bagi pengguna & tidak memberi tahu apa
