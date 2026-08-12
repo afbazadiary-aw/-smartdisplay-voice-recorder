@@ -33,6 +33,16 @@
     border:3px solid #008069;position:relative;flex-shrink:0}
   .ring video{width:100%;height:100%;object-fit:cover;display:block}
   .ring video.mirror{transform:scaleX(-1)}
+  /* PERMINTAAN ("saat mengirim, yang berputar adalah LINGKARAN VIDEONYA, bukan tombol kembali -
+     dan kecepatannya sesuai kebutuhan kirim, seperti mengunduh; penuh berarti selesai"): ini
+     progres SUNGGUHAN, bukan animasi berputar yang panjangnya ditebak. Nilainya datang dari
+     xhr.upload.onprogress (byte yang benar-benar sudah terkirim) dan ditulis ke --p. conic-
+     gradient menggambar busur sebesar itu, lalu mask melubangi tengahnya jadi CINCIN supaya
+     videonya tetap terlihat di dalam. */
+  .ring.sending::after{content:'';position:absolute;inset:-6px;border-radius:50%;pointer-events:none;
+    background:conic-gradient(#25d366 calc(var(--p,0) * 1%), rgba(255,255,255,.16) 0);
+    -webkit-mask:radial-gradient(circle, transparent calc(50% - 5px), #000 calc(50% - 4px));
+    mask:radial-gradient(circle, transparent calc(50% - 5px), #000 calc(50% - 4px))}
   .timer{font-size:14px;font-weight:700;color:#e9edef;font-variant-numeric:tabular-nums}
   .controls{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap}
   .btn{border:none;cursor:pointer;border-radius:50%;display:flex;align-items:center;
@@ -50,10 +60,10 @@
      Sekarang tombol kembali DIKUNCI selama pengiriman berlangsung, ditandai cincin berputar
      (isyarat visual, TANPA tulisan "Mengirim..."), dan jendela menutup SENDIRI begitu benar-
      benar terkirim. */
-  .btn-back.uploading{opacity:1;cursor:default;position:relative}
-  .btn-back.uploading::after{content:'';position:absolute;inset:-5px;border-radius:50%;
-    border:2px solid rgba(255,255,255,.22);border-top-color:#25d366;animation:spin .8s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
+  /* Tombol kembali tetap DIKUNCI selama pengiriman (menutup jendela membunuh permintaannya -
+     lihat catatan di sendVideo()), tapi cincin berputarnya dipindah ke lingkaran video sesuai
+     permintaan. Di sini cukup diredupkan supaya jelas belum bisa ditekan. */
+  .btn-back.uploading{opacity:.45;cursor:default}
   .btn:disabled{opacity:.45;cursor:default}
   .status{font-size:11px;color:#ff8a80;text-align:center;padding:0 10px;line-height:1.35;min-height:14px}
   .status.ok{color:#7ce0a3}
@@ -148,6 +158,22 @@ function stopRecording() {
   if (timerInt) { clearInterval(timerInt); timerInt = null; }
   dotEl.classList.remove('rec');
 }
+// PERMINTAAN ("percepat proses pengirimannya"): mengubah rekaman jadi base64 memakan waktu
+// nyata untuk berkas beberapa MB. Dulu itu baru dimulai SETELAH tombol kirim ditekan, jadi user
+// menunggu dua tahap berturut-turut: encode lalu unggah. Sekarang encode dimulai DIAM-DIAM
+// begitu perekaman berhenti - selagi user menonton pratinjau - sehingga saat kirim ditekan
+// datanya biasanya sudah siap dan yang tersisa hanya unggahannya saja.
+var preparedBase64 = null, preparingFor = null;
+function prepareBase64(forBlob) {
+  preparedBase64 = null; preparingFor = forBlob;
+  var r = new FileReader();
+  r.onload = function (e) {
+    if (preparingFor !== forBlob) return; // rekaman sudah diganti - hasil ini basi, buang
+    var d = String(e.target.result), i = d.indexOf('base64,');
+    preparedBase64 = i === -1 ? '' : d.slice(i + 7);
+  };
+  r.readAsDataURL(forBlob);
+}
 function onRecordingStop() {
   var mimeType = (recorder && recorder.mimeType) || 'video/webm';
   blob = new Blob(chunks, { type: mimeType });
@@ -161,6 +187,7 @@ function onRecordingStop() {
   previewEl.muted = false; previewEl.loop = true;
   previewEl.classList.remove('mirror'); // hasil rekaman TIDAK dicerminkan, hanya pratinjau live
   previewEl.play().catch(function () {});
+  prepareBase64(blob);
   headEl.textContent = 'Pratinjau';
   controlsEl.innerHTML =
     '<button type="button" class="btn btn-retake" id="retakeBtn" title="Ulangi">↺</button>' +
@@ -186,65 +213,74 @@ function onMainClick() {
 // Pengiriman berjalan di LATAR BELAKANG - layar langsung berganti tombol kembali, sesuai pola
 // perekam suara ("jangan terkesan lambat"). Pesan galat hanya muncul kalau BENAR-BENAR gagal.
 function sendVideo() {
-  // PERBAIKAN (dilaporkan: "ditekan kirim seperti TIDAK ADA AKSI sama sekali"): dulu baris ini
-  // hanya "if (!blob) return;" - kalau karena suatu sebab rekamannya tidak tersimpan, tombol
-  // kirim benar-benar tidak melakukan apa pun DAN tidak mengatakan apa pun. Tidak boleh ada
-  // jalan keluar diam-diam di sini; tiap sebab harus terbaca di layar.
   if (!blob) { setStatus('Belum ada rekaman untuk dikirim - tekan tombol merah dulu untuk merekam.'); return; }
-  if (!PARAMS.webapp) { setStatus('Alamat aplikasi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol 🎥 di Chat.'); return; }
-  if (!PARAMS.token || !PARAMS.groupId) { setStatus('Data grup/sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol 🎥 di Chat.'); return; }
+  if (!PARAMS.webapp) { setStatus('Alamat aplikasi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol video di Chat.'); return; }
+  if (!PARAMS.token || !PARAMS.groupId) { setStatus('Data grup/sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol video di Chat.'); return; }
   var durationSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
   var mimeType = blob.type || 'video/webm';
+  var sizeMb = (blob.size / 1048576).toFixed(1);
+  var ringEl = document.querySelector('.ring');
   headEl.textContent = 'Chat Video';
   controlsEl.innerHTML = '<button type="button" class="btn btn-back uploading" id="backBtn" title="Sedang dikirim" disabled>&#8592;</button>';
   var backBtn = document.getElementById('backBtn');
   var unlockBack = function () {
+    if (ringEl) ringEl.classList.remove('sending');
     backBtn.classList.remove('uploading');
     backBtn.disabled = false;
     backBtn.title = 'Kembali ke Chat';
     backBtn.onclick = function () { window.close(); };
   };
   previewEl.pause();
-  var reader = new FileReader();
-  reader.onload = function (e) {
+  // Cincin progres menempel di LINGKARAN VIDEO (bukan tombol kembali), mulai dari 0.
+  if (ringEl) { ringEl.classList.add('sending'); ringEl.style.setProperty('--p', '0'); }
+
+  var kirim = function (base64) {
+    if (!base64) { unlockBack(); setStatus('Gagal menyiapkan hasil rekaman di perangkat ini.'); return; }
     var form = new FormData();
     form.append('action', 'uploadChatVideoNote');
     form.append('token', PARAMS.token);
     form.append('groupId', PARAMS.groupId);
     form.append('mimeType', mimeType);
-    // AKAR MASALAH ("Gagal. Tidak dapat memecahkan kode string", padahal video cuma 2 detik):
-    // readAsDataURL menghasilkan "data:<mime>;base64,<data>". Kode lama memotongnya dengan
-    // split(',')[1] - itu berasumsi hanya ADA SATU koma di seluruh data URL. Untuk audio memang
-    // benar (audio/webm;codecs=opus), tapi mime video adalah video/webm;codecs=vp9,opus yang
-    // MENGANDUNG KOMA - jadi [1] berisi potongan "opus;base64", bukan datanya sama sekali, dan
-    // server gagal men-decode-nya. Itu sebabnya audio lolos sementara video selalu gagal, apa pun
-    // durasinya. Sekarang dipotong dari kemunculan PERTAMA penanda "base64," - satu-satunya
-    // pembatas yang benar-benar dijamin oleh format data URL.
-    var dataUrl = String(e.target.result);
-    var marker = dataUrl.indexOf('base64,');
-    var base64 = marker === -1 ? '' : dataUrl.slice(marker + 7);
     form.append('videoBase64', base64);
     form.append('durationLabel', '🎥 ' + fmt(durationSec));
-    // FormData/multipart adalah content-type yang aman-CORS, jadi TIDAK memicu preflight OPTIONS
-    // (Apps Script tidak menangani doOptions dengan baik) - pola sama dengan perekam suara.
-    // PERBAIKAN (gagal DIAM-DIAM): dulu respons langsung di-.json() - kalau server menjawab
-    // halaman galat HTML (mis. payload ditolak), parsing gagal dan semuanya jatuh ke satu pesan
-    // "periksa koneksi internet" yang menyesatkan. Sekarang respons dibaca sebagai TEKS dulu,
-    // jadi penyebab sebenarnya bisa terlihat & dilaporkan, bukan hilang.
-    var sizeMb = (blob.size / 1048576).toFixed(1);
-    fetch(PARAMS.webapp, { method: 'POST', body: form })
-      .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, status: r.status, text: t }; }); })
-      .then(function (res) {
-        var j = null; try { j = JSON.parse(res.text); } catch (e) {}
-        if (j && j.error) { unlockBack(); setStatus('Gagal: ' + j.error + ' (' + sizeMb + ' MB)'); return; }
-        if (j && (j.success || j.id || j.message)) { window.close(); return; }
-        unlockBack();
-        setStatus('Gagal kirim - server menjawab ' + res.status + ' (' + sizeMb + ' MB). ' + String(res.text).replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
-      })
-      .catch(function (err) { unlockBack(); setStatus('Gagal mengirim (' + sizeMb + ' MB): ' + ((err && err.message) || 'koneksi terputus')); });
+    // XMLHttpRequest dipakai (bukan fetch) SEMATA karena hanya XHR yang melaporkan kemajuan
+    // UNGGAHAN lewat xhr.upload.onprogress - fetch tidak punya itu sama sekali. Jadi cincin di
+    // lingkaran video digerakkan oleh byte yang BENAR-BENAR sudah terkirim, bukan animasi
+    // bertempo tetap yang panjangnya ditebak.
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', PARAMS.webapp, true);
+    xhr.upload.onprogress = function (ev) {
+      if (!ev.lengthComputable || !ringEl) return;
+      var pct = Math.round((ev.loaded / ev.total) * 100);
+      // Ditahan di 96% sampai server benar-benar menjawab: byte terkirim belum berarti sudah
+      // tersimpan. 100% baru ditulis saat jawaban sukses datang, supaya "penuh = selesai"
+      // benar-benar jujur, bukan sekadar "sudah dikirim ke jaringan".
+      ringEl.style.setProperty('--p', String(Math.min(96, pct)));
+    };
+    xhr.onload = function () {
+      var teks = xhr.responseText || '';
+      var j = null; try { j = JSON.parse(teks); } catch (e) {}
+      if (j && (j.success || j.id || j.message)) {
+        if (ringEl) ringEl.style.setProperty('--p', '100');
+        setTimeout(function () { window.close(); }, 250);
+        return;
+      }
+      unlockBack();
+      if (j && j.error) { setStatus('Gagal: ' + j.error + ' (' + sizeMb + ' MB)'); return; }
+      setStatus('Gagal kirim - server menjawab ' + xhr.status + ' (' + sizeMb + ' MB). ' + String(teks).replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
+    };
+    xhr.onerror = function () { unlockBack(); setStatus('Gagal mengirim (' + sizeMb + ' MB) - koneksi terputus.'); };
+    xhr.send(form);
   };
-  reader.onerror = function () { unlockBack(); setStatus('Gagal membaca hasil rekaman di perangkat ini.'); };
-  reader.readAsDataURL(blob);
+
+  // Kalau pra-encode (dimulai sejak perekaman berhenti) sudah selesai, langsung kirim. Kalau
+  // belum, tunggu sampai siap - tetap jauh lebih cepat daripada memulai encode dari nol di sini.
+  if (preparedBase64 !== null) { kirim(preparedBase64); return; }
+  var tunggu = setInterval(function () {
+    if (preparedBase64 === null) return;
+    clearInterval(tunggu);
+    kirim(preparedBase64);
+  }, 100);
 }
 mainBtn.onclick = onMainClick;
 // Tombol kembali di header - tersedia kapan saja. Kamera & mikrofon dimatikan dulu supaya
