@@ -509,7 +509,13 @@ if (PARAMS.token && PARAMS.groupId && PARAMS.webapp) {
   // WhatsApp langsung mulai merekam.
   startRecording();
 } else {
-  setStatus('Tautan tidak lengkap - buka halaman ini lewat tombol mic di aplikasi Chat.', 'error');
+  // PERMINTAAN ("keterangan jangan membingungkan"): kalimat lama ("Tautan tidak lengkap")
+  // memakai istilah teknis yang tidak berarti apa-apa bagi pengguna & tidak memberi tahu apa
+  // yang harus dilakukan. Diganti kalimat biasa + tombol tutup, dan bar perekaman disembunyikan
+  // supaya tidak ada kontrol yang terlihat bisa dipakai padahal tidak akan berfungsi.
+  barEl.classList.remove('show');
+  showBackScreen();
+  showBackError('Halaman ini hanya bisa dipakai dari tombol mikrofon di dalam aplikasi. Silakan tutup, lalu tekan tombol mikrofon di halaman Chat.');
 }
 </script>
 </body>
