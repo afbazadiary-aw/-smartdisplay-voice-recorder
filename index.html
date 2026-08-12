@@ -641,7 +641,17 @@ function uploadRecording(blob, mimeType, durationSec) {
   };
   var reader = new FileReader();
   reader.onload = function (e) {
-    var base64 = String(e.target.result).split(',')[1] || '';
+    // AKAR MASALAH ("Gagal. Tidak dapat memecahkan kode string", padahal video cuma 2 detik):
+    // readAsDataURL menghasilkan "data:<mime>;base64,<data>". Kode lama memotongnya dengan
+    // split(',')[1] - itu berasumsi hanya ADA SATU koma di seluruh data URL. Untuk audio memang
+    // benar (audio/webm;codecs=opus), tapi mime video adalah video/webm;codecs=vp9,opus yang
+    // MENGANDUNG KOMA - jadi [1] berisi potongan "opus;base64", bukan datanya sama sekali, dan
+    // server gagal men-decode-nya. Itu sebabnya audio lolos sementara video selalu gagal, apa pun
+    // durasinya. Sekarang dipotong dari kemunculan PERTAMA penanda "base64," - satu-satunya
+    // pembatas yang benar-benar dijamin oleh format data URL.
+    var dataUrl = String(e.target.result);
+    var marker = dataUrl.indexOf('base64,');
+    var base64 = marker === -1 ? '' : dataUrl.slice(marker + 7);
     var form = new FormData();
     form.append('action', 'uploadChatVoiceNote');
     form.append('token', PARAMS.token);
