@@ -303,7 +303,10 @@ function sendVideo() {
     startRing();
     var xhr = new XMLHttpRequest();
     xhr.open('POST', PARAMS.webapp, true);
-    xhr.timeout = 120000;
+    // Tenggat mengikuti ukuran berkas - lihat catatan lengkapnya di index.html (Chat Audio).
+    // Video jauh lebih besar per detik daripada audio, jadi justru di sini batas tetap 2 menit
+    // paling terasa membatasi durasi rekaman.
+    xhr.timeout = 120000 + Math.round((blob.size / 1048576) * 120000);
     xhr.onload = function () {
       stopRing();
       var teks = xhr.responseText || '';
@@ -337,7 +340,7 @@ function sendVideo() {
       setStatus('Gagal (' + sizeMb + ' MB): ' + sebab + ' - tekan kirim lagi.');
     };
     xhr.onerror = function () { gagal('koneksi terputus'); };
-    xhr.ontimeout = function () { gagal('waktu habis 2 menit'); };
+    xhr.ontimeout = function () { gagal('waktu unggah habis'); };
     xhr.send(form);
     };
     send();

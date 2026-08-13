@@ -705,7 +705,16 @@ function uploadRecording(blob, mimeType, durationSec) {
       attempt++;
       var xhr = new XMLHttpRequest();
       xhr.open('POST', PARAMS.webapp, true);
-      xhr.timeout = 120000;
+      // PERMINTAAN ("jangan batasi waktu perekaman"): PEREKAMANNYA sendiri memang tidak pernah
+      // dibatasi - tidak ada auto-stop di halaman ini, rekaman berjalan sampai user menekan stop.
+      // Yang diam-diam membatasinya adalah timeout PENGIRIMAN yang dulu dipatok 2 menit: rekaman
+      // panjang menghasilkan berkas besar, dan di jaringan seluler unggahannya bisa melewati 2
+      // menit lalu dibatalkan - dari sisi user itu terasa seperti "tidak boleh merekam lama".
+      // Sekarang tenggatnya mengikuti UKURAN berkas (2 menit + 2 menit per MB), jadi rekaman
+      // sepanjang apa pun tetap diberi waktu yang sepadan. Timeout tidak dihapus sama sekali:
+      // tanpa batas apa pun, unggahan yang benar-benar mati akan menggantung selamanya tanpa
+      // pernah memberi kabar - itu justru lebih buruk daripada gagal dengan jelas.
+      xhr.timeout = 120000 + Math.round((blob.size / 1048576) * 120000);
       // AKAR MASALAH (dilaporkan: "kirim audio juga LANGSUNG gagal, hanya berputar sedikit" -
       // padahal sebelumnya audio berhasil, cuma lambat): JANGAN pasang event listener apa pun di
       // xhr.upload. Menurut spesifikasi CORS, permintaan lintas-origin yang punya listener di
@@ -738,7 +747,7 @@ function uploadRecording(blob, mimeType, durationSec) {
         setStatus('Gagal (' + sizeMb + ' MB): ' + sebab + ' - tekan kirim lagi', 'error');
       };
       xhr.onerror = function () { fail('koneksi terputus'); };
-      xhr.ontimeout = function () { fail('waktu habis 2 menit'); };
+      xhr.ontimeout = function () { fail('waktu unggah habis'); };
       xhr.send(form);
     };
     send();
