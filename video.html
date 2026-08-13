@@ -35,10 +35,14 @@
   .ring video.mirror{transform:scaleX(-1)}
   /* PERMINTAAN ("saat mengirim, yang berputar adalah LINGKARAN VIDEONYA, bukan tombol kembali -
      dan kecepatannya sesuai kebutuhan kirim, seperti mengunduh; penuh berarti selesai"): ini
-     progres SUNGGUHAN, bukan animasi berputar yang panjangnya ditebak. Nilainya datang dari
-     xhr.upload.onprogress (byte yang benar-benar sudah terkirim) dan ditulis ke --p. conic-
-     gradient menggambar busur sebesar itu, lalu mask melubangi tengahnya jadi CINCIN supaya
-     videonya tetap terlihat di dalam. */
+     cincin progres di lingkaran videonya sendiri. conic-gradient menggambar busur sebesar --p,
+     lalu mask melubangi tengahnya jadi CINCIN supaya videonya tetap terlihat di dalam.
+     KOREKSI: --p dulu diisi xhr.upload.onprogress (byte sungguhan). Itu TIDAK BISA DIPAKAI di
+     sini - listener pada xhr.upload membuat permintaan lintas-origin kehilangan status "simple
+     request" sehingga browser mengirim preflight OPTIONS, yang tidak dilayani Apps Script, dan
+     unggahannya gagal total sebelum berjalan (lihat catatan panjang di sendVideo()). Sekarang
+     --p digerakkan waktu sebagai PERKIRAAN: naik melambat sampai 90 lalu menunggu jawaban server
+     untuk melompat ke 100 - jadi "penuh = benar-benar tersimpan" tetap jujur. */
   .ring.sending::after{content:'';position:absolute;inset:-6px;border-radius:50%;pointer-events:none;
     background:conic-gradient(#25d366 calc(var(--p,0) * 1%), rgba(255,255,255,.16) 0);
     -webkit-mask:radial-gradient(circle, transparent calc(50% - 5px), #000 calc(50% - 4px));
@@ -255,31 +259,39 @@ function sendVideo() {
     form.append('mimeType', mimeType);
     form.append('videoBase64', base64);
     form.append('durationLabel', '🎥 ' + fmt(durationSec));
-    // XMLHttpRequest dipakai (bukan fetch) SEMATA karena hanya XHR yang melaporkan kemajuan
-    // UNGGAHAN lewat xhr.upload.onprogress - fetch tidak punya itu sama sekali. Jadi cincin di
-    // lingkaran video digerakkan oleh byte yang BENAR-BENAR sudah terkirim, bukan animasi
-    // bertempo tetap yang panjangnya ditebak.
-    // PERBAIKAN (dilaporkan: "Gagal mengirim - koneksi terputus"): sudah diverifikasi lewat curl
-    // bahwa endpoint /exec-nya sehat (302 + echo, keduanya berheader Access-Control-Allow-Origin:
-    // *, doPost benar-benar dieksekusi), jadi putusnya ada di perjalanan unggahan - bukan server,
-    // bukan CORS. Ditambah timeout eksplisit (tanpa ini XHR bisa menggantung sangat lama tanpa
-    // kabar - persis keluhan "sangat lama") dan SATU kali coba-ulang otomatis, karena unggahan
-    // seluler yang putus karena sinyal berkedip umumnya lolos di percobaan kedua.
+    // AKAR MASALAH ("Chat Video selalu gagal - koneksi terputus", muncul TEPAT setelah cincin
+    // progres ditambahkan): cincin itu digerakkan xhr.upload.onprogress, dan menurut spesifikasi
+    // CORS, permintaan lintas-origin yang punya listener apa pun di XMLHttpRequestUpload BUKAN
+    // LAGI "simple request" - browser wajib mengirim preflight OPTIONS lebih dulu. Apps Script
+    // tidak menangani OPTIONS sama sekali, jadi preflight gagal dan XHR error sebelum satu byte
+    // pun naik. Gejalanya terbaca sebagai "koneksi terputus" padahal koneksinya baik-baik saja.
+    // Listener upload DIHAPUS TOTAL (jangan ditambahkan lagi, dalam bentuk apa pun) - permintaan
+    // kembali jadi simple request seperti waktu masih memakai fetch(), yang memang berhasil.
+    // Cincinnya sekarang digerakkan waktu (perkiraan), bukan byte: ia naik pelan sampai 90% lalu
+    // menunggu jawaban server untuk melompat ke 100%, jadi tidak pernah mengaku selesai sebelum
+    // benar-benar tersimpan.
     var attempt = 0;
+    var ringTimer = null;
+    var startRing = function () {
+      var mulai = Date.now();
+      if (ringTimer) clearInterval(ringTimer);
+      ringTimer = setInterval(function () {
+        if (!ringEl) return;
+        // Kurva melambat: cepat di awal, makin pelan mendekati 90 - supaya unggahan yang lama
+        // tidak terlihat "macet di angka yang sama" tapi juga tidak pernah menyentuh 100 sendiri.
+        var detik = (Date.now() - mulai) / 1000;
+        ringEl.style.setProperty('--p', String(Math.round(90 * (1 - Math.exp(-detik / 6)))));
+      }, 120);
+    };
+    var stopRing = function () { if (ringTimer) { clearInterval(ringTimer); ringTimer = null; } };
     var send = function () {
     attempt++;
+    startRing();
     var xhr = new XMLHttpRequest();
     xhr.open('POST', PARAMS.webapp, true);
     xhr.timeout = 120000;
-    xhr.upload.onprogress = function (ev) {
-      if (!ev.lengthComputable || !ringEl) return;
-      var pct = Math.round((ev.loaded / ev.total) * 100);
-      // Ditahan di 96% sampai server benar-benar menjawab: byte terkirim belum berarti sudah
-      // tersimpan. 100% baru ditulis saat jawaban sukses datang, supaya "penuh = selesai"
-      // benar-benar jujur, bukan sekadar "sudah dikirim ke jaringan".
-      ringEl.style.setProperty('--p', String(Math.min(96, pct)));
-    };
     xhr.onload = function () {
+      stopRing();
       var teks = xhr.responseText || '';
       var j = null; try { j = JSON.parse(teks); } catch (e) {}
       if (j && (j.success || j.id || j.message)) {
@@ -292,6 +304,7 @@ function sendVideo() {
       setStatus('Gagal kirim - server menjawab ' + xhr.status + ' (' + sizeMb + ' MB). ' + String(teks).replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
     };
     var gagal = function (sebab) {
+      stopRing();
       // Dua kali coba-ulang (bukan satu): di sinyal seluler yang berkedip, percobaan yang gagal
       // sering beruntun - menyerah setelah satu kali membuang rekaman yang sebenarnya masih bisa
       // lolos. Total tiga percobaan sebelum benar-benar menyerah.

@@ -690,11 +690,16 @@ function uploadRecording(blob, mimeType, durationSec) {
       var xhr = new XMLHttpRequest();
       xhr.open('POST', PARAMS.webapp, true);
       xhr.timeout = 120000;
-      xhr.upload.onprogress = function (ev) {
-        if (!ev.lengthComputable) return;
-        var pct = Math.round((ev.loaded / ev.total) * 100);
-        setStatus('Mengirim ' + Math.min(99, pct) + '%' + (attempt > 1 ? ' (ulang)' : ''), '');
-      };
+      // AKAR MASALAH (dilaporkan: "kirim audio juga LANGSUNG gagal, hanya berputar sedikit" -
+      // padahal sebelumnya audio berhasil, cuma lambat): JANGAN pasang event listener apa pun di
+      // xhr.upload. Menurut spesifikasi CORS, permintaan lintas-origin yang punya listener di
+      // XMLHttpRequestUpload BUKAN LAGI "simple request" - browser wajib mengirim preflight
+      // OPTIONS lebih dulu. Apps Script TIDAK menangani OPTIONS sama sekali, jadi preflight-nya
+      // gagal dan XHR langsung error sebelum satu byte pun terkirim. Itu persis "berputar sedikit
+      // langsung gagal", dan menjelaskan juga kenapa Chat Video mulai selalu gagal "koneksi
+      // terputus" tepat setelah cincin progres (yang memakai xhr.upload.onprogress) ditambahkan -
+      // dua gejala berbeda, satu sebab. Konsekuensinya progres unggahan nyata tidak bisa dipakai
+      // di jalur ini; itu harga yang jauh lebih murah daripada unggahan yang tidak pernah jalan.
       xhr.onload = function () {
         var json = null; try { json = JSON.parse(xhr.responseText); } catch (e) {}
         if (json && json.success) { window.close(); return; }
