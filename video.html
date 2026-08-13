@@ -154,12 +154,9 @@ function startRecording() {
   // pada ukuran setampil itu selisih 700k vs 420k praktis tidak terlihat, sementara berkasnya
   // hampir setengahnya. Ini pengurangan waktu unggah yang paling langsung terasa: base64 masih
   // menambah 33% lagi di atas ukuran berkas, dan seluruhnya harus lewat dalam satu POST.
-  // REVISI ("kualitas audio tingkatkan lagi"): jalur SUARA dinaikkan 32 -> 64 kbps, sama seperti
-  // Chat Audio. Bitrate VIDEO sengaja dibiarkan 300k: itu yang menentukan sebagian besar ukuran
-  // berkas, dan menaikkannya akan mengembalikan masalah unggahan yang baru saja selesai
-  // diperbaiki - sementara pada lingkaran 170px selisih ketajamannya tidak terlihat. Menaikkan
-  // audio saja menambah ukuran hanya beberapa persen.
-  var opts = { videoBitsPerSecond: 300000, audioBitsPerSecond: 64000 };
+  // Bitrate video 300k + suara 32k. Suara sempat dinaikkan ke 64 kbps lalu dikembalikan setelah
+  // dibandingkan langsung - lihat catatan yang sama di index.html (Chat Audio).
+  var opts = { videoBitsPerSecond: 300000, audioBitsPerSecond: 32000 };
   if (preferred) opts.mimeType = preferred;
   recorder = new MediaRecorder(stream, opts);
   chunks = [];
