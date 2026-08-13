@@ -672,6 +672,17 @@ function uploadRecording(blob, mimeType, durationSec) {
     form.append('mimeType', mimeType);
     form.append('audioBase64', base64);
     form.append('durationLabel', '🎤 ' + formatDurationLabel(durationSec));
+    // PERMINTAAN (Tabel Setoran): halaman perekam ini dipakai ULANG untuk dua tujuan. Kalau
+    // pembukanya menitipkan target=setoran di hash URL, titipan itu diteruskan apa adanya ke
+    // server, yang lalu menulis hasilnya ke kolom media pada baris tabel setoran alih-alih
+    // mengirimnya sebagai pesan chat (lihat cabang target=setoran di doPost, Kode.js).
+    // Tanpa titipan ini perilakunya persis seperti semula - jalur chat tidak berubah sama sekali.
+    if (PARAMS.target) {
+      form.append('target', PARAMS.target);
+      form.append('setoranId', PARAMS.setoranId || '');
+      form.append('setoranField', PARAMS.setoranField || 'setoran');
+      form.append('menuId', PARAMS.menuId || '');
+    }
     // PERBAIKAN (dilaporkan: "sekarang audio juga gagal terkirim"): dulu respons langsung
     // di-.json() - kalau server menjawab halaman galat HTML (bukan JSON), parsing gagal dan
     // SEMUA sebab jatuh ke satu kalimat "periksa koneksi internet" yang menyesatkan. Sekarang
@@ -765,8 +776,10 @@ sendBtn.onclick = function () {
     setStatus('Belum ada rekaman untuk dikirim - tekan tombol merah dulu untuk merekam.', 'error');
     return;
   }
-  if (!PARAMS.webapp || !PARAMS.token || !PARAMS.groupId) {
-    setStatus('Data sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol mikrofon di Chat.', 'error');
+  // groupId hanya wajib untuk tujuan CHAT. Rekaman untuk Tabel Setoran (target=setoran) memang
+  // tidak punya grup - tanpa pengecualian ini, perekam menolak mengirim sebelum mencoba.
+  if (!PARAMS.webapp || !PARAMS.token || (PARAMS.target !== 'setoran' && !PARAMS.groupId)) {
+    setStatus('Data sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol mikrofon.', 'error');
     return;
   }
   try { previewAudioEl.pause(); } catch (e) {}

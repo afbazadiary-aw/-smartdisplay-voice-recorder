@@ -233,7 +233,8 @@ function onMainClick() {
 function sendVideo() {
   if (!blob) { setStatus('Belum ada rekaman untuk dikirim - tekan tombol merah dulu untuk merekam.'); return; }
   if (!PARAMS.webapp) { setStatus('Alamat aplikasi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol video di Chat.'); return; }
-  if (!PARAMS.token || !PARAMS.groupId) { setStatus('Data grup/sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol video di Chat.'); return; }
+  // groupId hanya wajib untuk tujuan CHAT - lihat catatan yang sama di index.html (Chat Audio).
+  if (!PARAMS.token || (PARAMS.target !== 'setoran' && !PARAMS.groupId)) { setStatus('Data grup/sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol video.'); return; }
   var durationSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
   var mimeType = blob.type || 'video/webm';
   var sizeMb = (blob.size / 1048576).toFixed(1);
@@ -261,6 +262,17 @@ function sendVideo() {
     form.append('mimeType', mimeType);
     form.append('videoBase64', base64);
     form.append('durationLabel', '🎥 ' + fmt(durationSec));
+    // PERMINTAAN (Tabel Setoran): halaman perekam ini dipakai ULANG untuk dua tujuan. Kalau
+    // pembukanya menitipkan target=setoran di hash URL, titipan itu diteruskan apa adanya ke
+    // server, yang lalu menulis hasilnya ke kolom media pada baris tabel setoran alih-alih
+    // mengirimnya sebagai pesan chat (lihat cabang target=setoran di doPost, Kode.js).
+    // Tanpa titipan ini perilakunya persis seperti semula - jalur chat tidak berubah sama sekali.
+    if (PARAMS.target) {
+      form.append('target', PARAMS.target);
+      form.append('setoranId', PARAMS.setoranId || '');
+      form.append('setoranField', PARAMS.setoranField || 'setoran');
+      form.append('menuId', PARAMS.menuId || '');
+    }
     // AKAR MASALAH ("Chat Video selalu gagal - koneksi terputus", muncul TEPAT setelah cincin
     // progres ditambahkan): cincin itu digerakkan xhr.upload.onprogress, dan menurut spesifikasi
     // CORS, permintaan lintas-origin yang punya listener apa pun di XMLHttpRequestUpload BUKAN
