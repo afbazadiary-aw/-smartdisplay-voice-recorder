@@ -375,7 +375,15 @@ function startRecording(skipSavedDevice) {
     populateMicList();
     var preferred = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
       .find(function (t) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t); });
-    mediaRecorder = preferred ? new MediaRecorder(stream, { mimeType: preferred }) : new MediaRecorder(stream);
+    // PERBAIKAN (dilaporkan: "chat audio SANGAT LAMA terkirim dan gagal"): tanpa opsi bitrate,
+    // Chrome merekam Opus di ~128 kbps - satu menit jadi ~1MB, dan seluruhnya harus dikirim
+    // sebagai base64 (membengkak 33% lagi) dalam SATU POST. Di jaringan HP itu bisa puluhan detik
+    // dan gampang putus di tengah jalan. 32 kbps adalah kelas bitrate yang memang dipakai untuk
+    // SUARA pada Opus (bukan musik) - kualitasnya praktis tidak berbeda untuk pesan suara, tapi
+    // berkasnya jadi seperempatnya.
+    var recOpts = { audioBitsPerSecond: 32000 };
+    if (preferred) recOpts.mimeType = preferred;
+    mediaRecorder = new MediaRecorder(stream, recOpts);
     chunks = [];
     mediaRecorder.ondataavailable = function (e) { if (e.data && e.data.size > 0) chunks.push(e.data); };
     mediaRecorder.onstop = onRecordingStop;
@@ -664,20 +672,54 @@ function uploadRecording(blob, mimeType, durationSec) {
     // SEMUA sebab jatuh ke satu kalimat "periksa koneksi internet" yang menyesatkan. Sekarang
     // dibaca sebagai teks dulu, jadi status HTTP, isi jawaban, dan ukuran berkas terlihat -
     // pola sama dengan video.html.
-    var sizeMb = (blob.size / 1048576).toFixed(1);
-    fetch(PARAMS.webapp, { method: 'POST', body: form })
-      .then(function (r) { return r.text().then(function (t) { return { status: r.status, text: t }; }); })
-      .then(function (res) {
-        var json = null; try { json = JSON.parse(res.text); } catch (e) {}
-        if (json && json.error) { unlockBack(); showBackError(json.error + ' (' + sizeMb + ' MB)'); return; }
+    var sizeMb = (blob.size / 1048576).toFixed(2);
+    // PERBAIKAN (dilaporkan: "Gagal mengirim: Failed to fetch"): "Failed to fetch" adalah pesan
+    // GENERIK fetch() untuk SEMUA kegagalan sebelum respons diterima - putus di tengah jalan,
+    // waktu habis, jaringan hilang sesaat - tanpa membedakan satu pun. Sudah diverifikasi lewat
+    // curl bahwa endpoint /exec-nya sendiri sehat (302 + echo, keduanya berheader
+    // Access-Control-Allow-Origin: *, dan doPost benar-benar dieksekusi), jadi penyebabnya ada di
+    // perjalanan unggahannya, bukan di server maupun CORS.
+    // Diganti XMLHttpRequest karena hanya XHR yang memberi tiga hal yang dibutuhkan di sini:
+    // timeout eksplisit (fetch tidak punya), pembedaan sebab (ontimeout vs onerror vs onabort),
+    // dan progres unggahan yang nyata. Ditambah SATU kali coba-ulang otomatis: unggahan seluler
+    // yang putus karena sinyal berkedip biasanya berhasil di percobaan kedua, dan mengulang
+    // sendiri jauh lebih baik daripada menyuruh user merekam ulang dari nol.
+    var attempt = 0;
+    var send = function () {
+      attempt++;
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', PARAMS.webapp, true);
+      xhr.timeout = 120000;
+      xhr.upload.onprogress = function (ev) {
+        if (!ev.lengthComputable) return;
+        var pct = Math.round((ev.loaded / ev.total) * 100);
+        setStatus('Mengirim ' + Math.min(99, pct) + '%' + (attempt > 1 ? ' (ulang)' : ''), '');
+      };
+      xhr.onload = function () {
+        var json = null; try { json = JSON.parse(xhr.responseText); } catch (e) {}
         if (json && json.success) { window.close(); return; }
         unlockBack();
-        showBackError('Server menjawab ' + res.status + ' (' + sizeMb + ' MB). ' + String(res.text).replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
-      })
-      .catch(function (err) {
+        if (json && json.error) { showBackError(json.error + ' (' + sizeMb + ' MB)'); return; }
+        showBackError('Server menjawab ' + xhr.status + ' (' + sizeMb + ' MB). ' + String(xhr.responseText || '').replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
+      };
+      // Kegagalan JARINGAN (bukan jawaban server) - inilah yang dulu selalu muncul sebagai
+      // "Failed to fetch". Dicoba ulang sekali sebelum menyerah.
+      var fail = function (sebab) {
+        if (attempt < 2) { setStatus('Koneksi terputus, mencoba ulang...', ''); send(); return; }
         unlockBack();
-        showBackError('Gagal mengirim (' + sizeMb + ' MB): ' + ((err && err.message) || 'koneksi terputus'));
-      });
+        // Rekamannya masih utuh di memori - dikembalikan ke layar review supaya tombol kirim bisa
+        // ditekan lagi. Tanpa ini user terjebak di layar panah dengan satu-satunya jalan keluar
+        // menutup jendela, artinya rekaman yang sudah jadi ikut terbuang percuma.
+        backScreenEl.classList.remove('show');
+        barEl.classList.add('show');
+        sendBtn.disabled = false;
+        setStatus('Gagal (' + sizeMb + ' MB): ' + sebab + ' - tekan kirim lagi', 'error');
+      };
+      xhr.onerror = function () { fail('koneksi terputus'); };
+      xhr.ontimeout = function () { fail('waktu habis 2 menit'); };
+      xhr.send(form);
+    };
+    send();
   };
   reader.readAsDataURL(blob);
 }

@@ -138,7 +138,12 @@ function startRecording() {
     .find(function (t) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t); });
   // Bitrate dijepit juga - constraint kamera saja tidak menjamin ukuran berkas kecil kalau
   // perangkat mengabaikan permintaan resolusi.
-  var opts = { videoBitsPerSecond: 700000, audioBitsPerSecond: 64000 };
+  // PERBAIKAN (dilaporkan: "chat video masih SANGAT LAMA terkirim dan gagal"): bitrate diturunkan
+  // lagi (700k -> 420k video, 64k -> 32k audio). Videonya tampil dalam lingkaran 170px di chat -
+  // pada ukuran setampil itu selisih 700k vs 420k praktis tidak terlihat, sementara berkasnya
+  // hampir setengahnya. Ini pengurangan waktu unggah yang paling langsung terasa: base64 masih
+  // menambah 33% lagi di atas ukuran berkas, dan seluruhnya harus lewat dalam satu POST.
+  var opts = { videoBitsPerSecond: 420000, audioBitsPerSecond: 32000 };
   if (preferred) opts.mimeType = preferred;
   recorder = new MediaRecorder(stream, opts);
   chunks = [];
@@ -247,8 +252,18 @@ function sendVideo() {
     // UNGGAHAN lewat xhr.upload.onprogress - fetch tidak punya itu sama sekali. Jadi cincin di
     // lingkaran video digerakkan oleh byte yang BENAR-BENAR sudah terkirim, bukan animasi
     // bertempo tetap yang panjangnya ditebak.
+    // PERBAIKAN (dilaporkan: "Gagal mengirim - koneksi terputus"): sudah diverifikasi lewat curl
+    // bahwa endpoint /exec-nya sehat (302 + echo, keduanya berheader Access-Control-Allow-Origin:
+    // *, doPost benar-benar dieksekusi), jadi putusnya ada di perjalanan unggahan - bukan server,
+    // bukan CORS. Ditambah timeout eksplisit (tanpa ini XHR bisa menggantung sangat lama tanpa
+    // kabar - persis keluhan "sangat lama") dan SATU kali coba-ulang otomatis, karena unggahan
+    // seluler yang putus karena sinyal berkedip umumnya lolos di percobaan kedua.
+    var attempt = 0;
+    var send = function () {
+    attempt++;
     var xhr = new XMLHttpRequest();
     xhr.open('POST', PARAMS.webapp, true);
+    xhr.timeout = 120000;
     xhr.upload.onprogress = function (ev) {
       if (!ev.lengthComputable || !ringEl) return;
       var pct = Math.round((ev.loaded / ev.total) * 100);
@@ -269,8 +284,26 @@ function sendVideo() {
       if (j && j.error) { setStatus('Gagal: ' + j.error + ' (' + sizeMb + ' MB)'); return; }
       setStatus('Gagal kirim - server menjawab ' + xhr.status + ' (' + sizeMb + ' MB). ' + String(teks).replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
     };
-    xhr.onerror = function () { unlockBack(); setStatus('Gagal mengirim (' + sizeMb + ' MB) - koneksi terputus.'); };
+    var gagal = function (sebab) {
+      if (attempt < 2) {
+        if (ringEl) ringEl.style.setProperty('--p', '0');
+        setStatus('Koneksi terputus, mencoba ulang...');
+        send();
+        return;
+      }
+      unlockBack();
+      // Rekamannya masih utuh - tombol kirim dimunculkan lagi supaya tidak perlu merekam ulang.
+      controlsEl.innerHTML = '<button type="button" class="btn btn-back" id="backBtn" title="Kembali ke Chat">&#8592;</button>' +
+        '<button type="button" class="btn btn-send" id="sendBtn" title="Kirim ulang">&#10148;</button>';
+      document.getElementById('backBtn').onclick = function () { window.close(); };
+      document.getElementById('sendBtn').onclick = sendVideo;
+      setStatus('Gagal (' + sizeMb + ' MB): ' + sebab + ' - tekan kirim lagi.');
+    };
+    xhr.onerror = function () { gagal('koneksi terputus'); };
+    xhr.ontimeout = function () { gagal('waktu habis 2 menit'); };
     xhr.send(form);
+    };
+    send();
   };
 
   // Kalau pra-encode (dimulai sejak perekaman berhenti) sudah selesai, langsung kirim. Kalau
