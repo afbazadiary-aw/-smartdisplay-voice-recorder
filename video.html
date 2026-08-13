@@ -232,9 +232,9 @@ function onMainClick() {
 // perekam suara ("jangan terkesan lambat"). Pesan galat hanya muncul kalau BENAR-BENAR gagal.
 function sendVideo() {
   if (!blob) { setStatus('Belum ada rekaman untuk dikirim - tekan tombol merah dulu untuk merekam.'); return; }
-  if (!PARAMS.webapp) { setStatus('Alamat aplikasi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol video di Chat.'); return; }
+  if (!PARAMS.webapp) { setStatus('Alamat aplikasi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol video di dalam aplikasi.'); return; }
   // groupId hanya wajib untuk tujuan CHAT - lihat catatan yang sama di index.html (Chat Audio).
-  if (!PARAMS.token || (PARAMS.target !== 'setoran' && !PARAMS.groupId)) { setStatus('Data grup/sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol video.'); return; }
+  if (!PARAMS.token || (PARAMS.target !== 'setoran' && !PARAMS.groupId)) { setStatus('Data sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol video di dalam aplikasi.'); return; }
   var durationSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
   var mimeType = blob.type || 'video/webm';
   var sizeMb = (blob.size / 1048576).toFixed(1);
@@ -372,7 +372,7 @@ if (PARAMS.token && PARAMS.webapp && (PARAMS.groupId || PARAMS.target === 'setor
 } else {
   controlsEl.innerHTML = '<button type="button" class="btn btn-back" id="backBtn" title="Tutup">&#8592;</button>';
   document.getElementById('backBtn').onclick = function () { window.close(); };
-  setStatus('Halaman ini hanya bisa dipakai dari tombol video di dalam aplikasi. Silakan tutup, lalu tekan tombol 🎥 di halaman Chat.');
+  setStatus('Halaman ini hanya bisa dipakai dari dalam aplikasi. Silakan tutup, lalu tekan tombol 🎥 di tempat Anda ingin merekam.');
 }
 </script>
 </body>
