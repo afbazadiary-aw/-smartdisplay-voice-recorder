@@ -705,7 +705,8 @@ function uploadRecording(blob, mimeType, durationSec) {
       // Kegagalan JARINGAN (bukan jawaban server) - inilah yang dulu selalu muncul sebagai
       // "Failed to fetch". Dicoba ulang sekali sebelum menyerah.
       var fail = function (sebab) {
-        if (attempt < 2) { setStatus('Koneksi terputus, mencoba ulang...', ''); send(); return; }
+        // Tiga percobaan total - lihat catatan yang sama di video.html.
+        if (attempt < 3) { setStatus('Koneksi terputus, mencoba ulang...', ''); send(); return; }
         unlockBack();
         // Rekamannya masih utuh di memori - dikembalikan ke layar review supaya tombol kirim bisa
         // ditekan lagi. Tanpa ini user terjebak di layar panah dengan satu-satunya jalan keluar

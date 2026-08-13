@@ -120,7 +120,14 @@ function startPreview() {
   // diam. Padahal di chat videonya cuma tampil dalam lingkaran 160px - 480x480 sudah lebih dari
   // cukup. Resolusi & bitrate dibatasi di sini supaya berkasnya kecil sejak awal.
   navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 } },
+    // PERBAIKAN LANJUTAN (dilaporkan: "masih gagal - koneksi terputus, padahal nonton YouTube
+    // lancar"): YouTube lancar itu UNDUH; yang dipakai di sini JALUR UNGGAH, yang di jaringan
+    // seluler biasa 10-20x lebih lambat - keduanya tidak bisa dijadikan pembanding. Sudah diukur:
+    // server memproses 800KB dalam ~5 detik dari koneksi baik, jadi hambatannya murni di jalan
+    // naiknya. Satu-satunya pengungkit nyata adalah memperkecil berkasnya: 480 -> 360 piksel dan
+    // 24 -> 20 fps. Di chat videonya tampil dalam lingkaran 170px, jadi 360 masih dua kali lipat
+    // dari yang benar-benar terlihat.
+    video: { facingMode: 'user', width: { ideal: 360 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } },
     audio: true
   }).then(function (s) {
     stream = s;
@@ -143,7 +150,7 @@ function startRecording() {
   // pada ukuran setampil itu selisih 700k vs 420k praktis tidak terlihat, sementara berkasnya
   // hampir setengahnya. Ini pengurangan waktu unggah yang paling langsung terasa: base64 masih
   // menambah 33% lagi di atas ukuran berkas, dan seluruhnya harus lewat dalam satu POST.
-  var opts = { videoBitsPerSecond: 420000, audioBitsPerSecond: 32000 };
+  var opts = { videoBitsPerSecond: 300000, audioBitsPerSecond: 32000 };
   if (preferred) opts.mimeType = preferred;
   recorder = new MediaRecorder(stream, opts);
   chunks = [];
@@ -285,7 +292,10 @@ function sendVideo() {
       setStatus('Gagal kirim - server menjawab ' + xhr.status + ' (' + sizeMb + ' MB). ' + String(teks).replace(/<[^>]*>/g, ' ').trim().slice(0, 90));
     };
     var gagal = function (sebab) {
-      if (attempt < 2) {
+      // Dua kali coba-ulang (bukan satu): di sinyal seluler yang berkedip, percobaan yang gagal
+      // sering beruntun - menyerah setelah satu kali membuang rekaman yang sebenarnya masih bisa
+      // lolos. Total tiga percobaan sebelum benar-benar menyerah.
+      if (attempt < 3) {
         if (ringEl) ringEl.style.setProperty('--p', '0');
         setStatus('Koneksi terputus, mencoba ulang...');
         send();
