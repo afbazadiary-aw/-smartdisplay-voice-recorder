@@ -668,7 +668,7 @@ function uploadRecording(blob, mimeType, durationSec) {
     var form = new FormData();
     form.append('action', 'uploadChatVoiceNote');
     form.append('token', PARAMS.token);
-    form.append('groupId', PARAMS.groupId);
+    form.append('groupId', PARAMS.groupId || '');
     form.append('mimeType', mimeType);
     form.append('audioBase64', base64);
     form.append('durationLabel', '🎤 ' + formatDurationLabel(durationSec));
@@ -795,7 +795,11 @@ sendBtn.onclick = function () {
   uploadRecording(recordedBlob, recordedMime, recordedSec);
 };
 
-if (PARAMS.token && PARAMS.groupId && PARAMS.webapp) {
+// PERBAIKAN (dilaporkan: "halaman perekaman video untuk setoran menolak dibuka"): guard di
+// TITIK MASUK ini terlewat saat jalur setoran ditambahkan - guard di fungsi kirim sudah
+// dilonggarkan, tapi yang ini menolak lebih dulu sehingga kameranya tidak pernah menyala.
+// groupId hanya wajib untuk tujuan CHAT; rekaman untuk Tabel Setoran memang tidak punya grup.
+if (PARAMS.token && PARAMS.webapp && (PARAMS.groupId || PARAMS.target === 'setoran')) {
   // PERMINTAAN (revisi - "jangan otomatis langsung merekam, karena di halaman perekaman ada
   // pengaturan sumber audio dll - user yang memulai di sini"): halaman terbuka dalam keadaan
   // SIAP, bukan sudah merekam. User mengatur sumber & mikrofon dulu, baru menekan ▶ untuk mulai

@@ -258,7 +258,7 @@ function sendVideo() {
     var form = new FormData();
     form.append('action', 'uploadChatVideoNote');
     form.append('token', PARAMS.token);
-    form.append('groupId', PARAMS.groupId);
+    form.append('groupId', PARAMS.groupId || '');
     form.append('mimeType', mimeType);
     form.append('videoBase64', base64);
     form.append('durationLabel', '🎥 ' + fmt(durationSec));
@@ -363,7 +363,11 @@ document.getElementById('headBackBtn').onclick = function () {
   try { if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
   window.close();
 };
-if (PARAMS.token && PARAMS.groupId && PARAMS.webapp) {
+// PERBAIKAN (dilaporkan: "halaman perekaman video untuk setoran menolak dibuka"): guard di
+// TITIK MASUK ini terlewat saat jalur setoran ditambahkan - guard di fungsi kirim sudah
+// dilonggarkan, tapi yang ini menolak lebih dulu sehingga kameranya tidak pernah menyala.
+// groupId hanya wajib untuk tujuan CHAT; rekaman untuk Tabel Setoran memang tidak punya grup.
+if (PARAMS.token && PARAMS.webapp && (PARAMS.groupId || PARAMS.target === 'setoran')) {
   startPreview();
 } else {
   controlsEl.innerHTML = '<button type="button" class="btn btn-back" id="backBtn" title="Tutup">&#8592;</button>';
