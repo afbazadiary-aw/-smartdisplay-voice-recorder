@@ -787,7 +787,10 @@ sendBtn.onclick = function () {
   }
   // groupId hanya wajib untuk tujuan CHAT. Rekaman untuk Tabel Setoran (target=setoran) memang
   // tidak punya grup - tanpa pengecualian ini, perekam menolak mengirim sebelum mencoba.
-  if (!PARAMS.webapp || !PARAMS.token || (PARAMS.target !== 'setoran' && !PARAMS.groupId)) {
+  // Sama seperti guard di titik masuk: JANGAN mendaftar tujuan satu per satu. Yang diperiksa
+  // cukup "ada tujuan atau tidak" - groupId (chat) ATAU target (tujuan lain seperti Tabel
+  // Setoran). Tujuan baru berikutnya otomatis lolos tanpa menyentuh baris ini.
+  if (!PARAMS.webapp || !PARAMS.token || (!PARAMS.groupId && !PARAMS.target)) {
     setStatus('Data sesi tidak terbaca - tutup halaman ini lalu buka lagi lewat tombol mikrofon di dalam aplikasi.', 'error');
     return;
   }
@@ -799,7 +802,20 @@ sendBtn.onclick = function () {
 // TITIK MASUK ini terlewat saat jalur setoran ditambahkan - guard di fungsi kirim sudah
 // dilonggarkan, tapi yang ini menolak lebih dulu sehingga kameranya tidak pernah menyala.
 // groupId hanya wajib untuk tujuan CHAT; rekaman untuk Tabel Setoran memang tidak punya grup.
-if (PARAMS.token && PARAMS.webapp && (PARAMS.groupId || PARAMS.target === 'setoran')) {
+// PERBAIKAN (dilaporkan: "notifikasi ini seharusnya TIDAK PERNAH muncul kalau halaman dibuka
+// dari ikon mic/kamera - yang wajar muncul cuma pop izin browser"): syaratnya disederhanakan ke
+// hal yang BENAR-BENAR menentukan halaman ini bisa bekerja atau tidak, yaitu token & alamat
+// aplikasi. groupId DILEPAS dari syarat membuka: ia hanya menentukan TUJUAN, dan tujuan itu
+// diperiksa saat mengirim - bukan alasan untuk menolak menyalakan mikrofon/kamera. Syarat lama
+// yang mendaftar tujuan satu per satu (groupId ATAU target=setoran) sudah terbukti rapuh: begitu
+// Tabel Setoran ikut memakai halaman ini, daftarnya jadi ketinggalan dan halaman menolak justru
+// ketika dibuka dengan benar. Dengan bentuk sekarang, tujuan baru apa pun tidak akan mengulang
+// kesalahan yang sama.
+// Pesannya juga dibedakan: hash KOSONG berarti alamatnya memang dibuka langsung di browser
+// (bukan pemakaian yang didukung), sedangkan hash ADA tapi tidak lengkap berarti ada yang keliru
+// - dua keadaan yang perlu ditangani user secara berbeda.
+var dibukaLangsung = !location.hash || location.hash === '#';
+if (PARAMS.token && PARAMS.webapp) {
   // PERMINTAAN (revisi - "jangan otomatis langsung merekam, karena di halaman perekaman ada
   // pengaturan sumber audio dll - user yang memulai di sini"): halaman terbuka dalam keadaan
   // SIAP, bukan sudah merekam. User mengatur sumber & mikrofon dulu, baru menekan ▶ untuk mulai
@@ -812,7 +828,9 @@ if (PARAMS.token && PARAMS.webapp && (PARAMS.groupId || PARAMS.target === 'setor
   // supaya tidak ada kontrol yang terlihat bisa dipakai padahal tidak akan berfungsi.
   barEl.classList.remove('show');
   showBackScreen();
-  showBackError('Halaman ini hanya bisa dipakai dari dalam aplikasi. Silakan tutup, lalu tekan tombol mikrofon di tempat Anda ingin merekam.');
+  showBackError((dibukaLangsung
+    ? 'Halaman ini bagian dari aplikasi Smart Display dan tidak dipakai sendiri. Tutup halaman ini, lalu tekan tombol mikrofon di tempat Anda ingin merekam.'
+    : 'Data sesi tidak lengkap - kemungkinan tautannya kedaluwarsa. Tutup halaman ini, lalu tekan lagi tombol mikrofonnya.'));
 }
 </script>
 </body>
