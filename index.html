@@ -381,7 +381,15 @@ function startRecording(skipSavedDevice) {
     // dan gampang putus di tengah jalan. 32 kbps adalah kelas bitrate yang memang dipakai untuk
     // SUARA pada Opus (bukan musik) - kualitasnya praktis tidak berbeda untuk pesan suara, tapi
     // berkasnya jadi seperempatnya.
-    var recOpts = { audioBitsPerSecond: 32000 };
+    // REVISI ("kualitas audio tingkatkan lagi"): 32 -> 64 kbps. Perlu diketahui apa yang
+    // sebenarnya berubah: 32 kbps Opus sudah jernih untuk SUARA MANUSIA, dan kenaikan ke 64 kbps
+    // terdengar terutama pada bagian selain ucapan - musik latar, ruangan bergema, beberapa orang
+    // bicara bersamaan. Ongkosnya berkas dua kali lipat, yang berarti waktu unggah juga dua kali
+    // lipat di jaringan seluler - itu justru keluhan yang dulu membuatnya diturunkan. 64 kbps
+    // dipilih sebagai titik tengah, bukan dikembalikan ke bawaan Chrome (~128 kbps) yang empat
+    // kali lipat dari sekarang dengan selisih kualitas yang praktis tidak terdengar untuk rekaman
+    // suara.
+    var recOpts = { audioBitsPerSecond: 64000 };
     if (preferred) recOpts.mimeType = preferred;
     mediaRecorder = new MediaRecorder(stream, recOpts);
     chunks = [];
