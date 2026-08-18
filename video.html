@@ -49,6 +49,12 @@
     mask:radial-gradient(circle, transparent calc(50% - 5px), #000 calc(50% - 4px))}
   .timer{font-size:14px;font-weight:700;color:#e9edef;font-variant-numeric:tabular-nums}
   .controls{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap}
+/* Dropdown kamera. Disamakan dengan pemilih mikrofon di perekam suara supaya
+   kedua halaman terasa satu produk. */
+.cam-select{max-width:100%;width:100%;font-size:11px;padding:6px 8px;border-radius:8px;
+  border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);
+  color:rgba(233,237,239,.85);font-family:inherit;outline:none}
+.cam-select:focus{border-color:rgba(255,255,255,.36)}
   .btn{border:none;cursor:pointer;border-radius:50%;display:flex;align-items:center;
     justify-content:center;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3)}
   .btn-main{width:58px;height:58px;background:#e53935;font-size:20px}
@@ -82,6 +88,7 @@
     <div class="controls" id="controls">
       <button type="button" class="btn btn-main" id="mainBtn" title="Mulai merekam">⏺</button>
     </div>
+    <select id="camSelect" class="cam-select" title="Pilih kamera" style="display:none"></select>
     <div class="status" id="status"></div>
   </div>
 </div>
@@ -109,6 +116,47 @@ var stream = null, recorder = null, chunks = [], blob = null;
 var startTime = 0, timerInt = null;
 
 function setStatus(msg, ok) { statusEl.textContent = msg || ''; statusEl.className = 'status' + (ok ? ' ok' : ''); }
+
+/* Pilihan kamera disimpan PERMANEN (bukan per-sesi) - sama seperti pilihan
+   mikrofon di perekam suara: sekali dipilih, rekaman berikutnya langsung
+   memakainya sampai penggunanya sendiri mengganti. */
+var CAM_DEVICE_KEY = 'chat_video_cam_device_id';
+var camSelectEl = document.getElementById('camSelect');
+
+/* Nama perangkat baru diberikan peramban SETELAH izin kamera diberikan - itu
+   aturan privasi, bukan pilihan kita. Karena itu daftarnya diisi setelah
+   pratinjau berhasil menyala, bukan saat halaman dibuka. */
+function populateCamList() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  navigator.mediaDevices.enumerateDevices().then(function (devices) {
+    var cams = devices.filter(function (d) { return d.kind === 'videoinput'; });
+    // Kalau kameranya cuma satu, tidak ada yang perlu dipilih.
+    if (cams.length <= 1) { camSelectEl.style.display = 'none'; return; }
+    camSelectEl.style.display = '';
+    var saved = localStorage.getItem(CAM_DEVICE_KEY);
+    camSelectEl.innerHTML = cams.map(function (d, i) {
+      return '<option value="' + d.deviceId + '">' + (d.label || ('Kamera ' + (i + 1))) + '</option>';
+    }).join('');
+    if (saved && cams.some(function (d) { return d.deviceId === saved; })) camSelectEl.value = saved;
+    else localStorage.setItem(CAM_DEVICE_KEY, camSelectEl.value);
+  }).catch(function () {});
+}
+
+/* Mengganti kamera = menyalakan ulang pratinjau dengan perangkat baru.
+   Hanya diizinkan saat TIDAK sedang merekam - MediaRecorder tidak bisa berpindah
+   sumber di tengah jalan, dan menghentikan rekaman yang sedang berjalan hanya
+   demi mengganti kamera akan membuang rekaman pengguna tanpa ia minta. */
+if (camSelectEl) {
+  camSelectEl.onchange = function () {
+    localStorage.setItem(CAM_DEVICE_KEY, camSelectEl.value);
+    if (recorder && recorder.state === 'recording') {
+      setStatus('Kamera diganti setelah rekaman ini selesai.');
+      return;
+    }
+    if (stream) { try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} stream = null; }
+    startPreview();
+  };
+}
 function fmt(sec) { var m = Math.floor(sec / 60), s = sec % 60; return m + ':' + (s < 10 ? '0' : '') + s; }
 
 // Kamera dinyalakan begitu halaman terbuka (pratinjau saja, BELUM merekam) - user menekan ⏺
@@ -131,13 +179,26 @@ function startPreview() {
     // naiknya. Satu-satunya pengungkit nyata adalah memperkecil berkasnya: 480 -> 360 piksel dan
     // 24 -> 20 fps. Di chat videonya tampil dalam lingkaran 170px, jadi 360 masih dua kali lipat
     // dari yang benar-benar terlihat.
-    video: { facingMode: 'user', width: { ideal: 360 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } },
+    // deviceId dipakai kalau penggunanya sudah pernah memilih kamera; kalau
+    // belum, facingMode 'user' tetap jadi bawaan seperti sebelumnya. 'ideal'
+    // (bukan 'exact') supaya kamera yang tersimpan tapi sudah dicabut tidak
+    // membuat perekamnya gagal total - peramban tinggal memakai kamera lain.
+    video: (function () {
+      var v = { width: { ideal: 360 }, height: { ideal: 360 }, frameRate: { ideal: 20, max: 24 } };
+      var pilihan = null;
+      try { pilihan = localStorage.getItem(CAM_DEVICE_KEY); } catch (e) {}
+      if (pilihan) v.deviceId = { ideal: pilihan };
+      else v.facingMode = 'user';
+      return v;
+    })(),
     audio: true
   }).then(function (s) {
     stream = s;
     previewEl.srcObject = s; previewEl.muted = true;
     previewEl.play().catch(function () {});
     setStatus('');
+    // Daftar kamera baru bisa diisi sekarang - label perangkat sudah terbuka.
+    populateCamList();
   }).catch(function (e) {
     setStatus('Tidak bisa mengakses kamera (' + ((e && e.name) || 'error') + '). Pastikan izin kamera & mikrofon diizinkan untuk halaman ini.');
     mainBtn.disabled = true;
